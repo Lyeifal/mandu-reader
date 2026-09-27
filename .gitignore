@@ -1,0 +1,33 @@
+# --- Dart / Flutter ---
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+*.iml
+.idea/
+.metadata
+
+# --- 生成的平台产物（保留 runner 源码，忽略构建输出） ---
+app/android/.gradle/
+app/android/local.properties
+app/android/key.properties
+app/android/**/GeneratedPluginRegistrant.*
+app/windows/flutter/
+app/windows/**/*.exe
+app/windows/**/*.dll
+app/linux/flutter/
+app/flutter_export_environment.sh
+
+# --- 本地数据 / 密钥，绝不入库 ---
+*.env
+app/.env
+local_data/
+local_works/
+
+# --- 系统 / 编辑器 ---
+.DS_Store
+Thumbs.db
+*.log
+.vscode/
+*.swp
