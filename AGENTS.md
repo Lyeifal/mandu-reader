@@ -20,7 +20,7 @@
   生成的 `*.g.dart` **提交入库**（单人项目不跑 CI）。
 - 网络/S3：`minio` pub 包 + 自封装 `BucketClient`（见 `app/lib/features/bucket/`）。若 minio 包缺能力，在设计文档 §12 记录后自补 SigV4 请求层。
 - 路由：`go_router`。
-- 密钥存储：`flutter_secure_storage`；SK 用 PIN 派生密钥 AES-256-GCM 加密后落盘。
+- 密钥存储：`flutter_secure_storage`；SK 用 PIN 派生密钥 AES-256-CBC + HMAC-SHA256 加密后落盘（`features/auth/pin_crypto.dart`）。
 
 ## 分层与依赖方向
 

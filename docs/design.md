@@ -56,7 +56,7 @@
 | 本地库 | `drift` + `sqlite3_flutter_libs` | FTS5 trigram 需 SQLite ≥ 3.34，flutter_libs 满足 |
 | S3 客户端 | `minio` pub 包（v3.5.8，2025-08 仍在维护） | 外层自封装 `BucketClient`，便于换实现 |
 | 密钥存储 | `flutter_secure_storage` | Android Keystore / Windows DPAPI |
-| 加密 | `crypto` | PBKDF2 派生 + AES-256-GCM 信封加密 |
+| 加密 | `crypto` + `encrypt` | 手写 PBKDF2-HMAC-SHA256 派生（RFC 2898，以已知向量单测）+ AES-256-CBC + HMAC-SHA256（Encrypt-then-MAC）。未选 GCM：`encrypt` 包 GCM 输出格式跨版本不稳定，CBC+EtM 语义明确可测 |
 | 书源网络 | `http` | M5 源引擎用；minio 内部自带请求层 |
 | 代码生成 | `build_runner` + `drift_dev` | 生成物 `*.g.dart` 提交入库 |
 
@@ -332,7 +332,7 @@ settings 表结构：`key TEXT PK, value TEXT, scope TEXT('device'|'synced'), up
 1. 录入桶配置后 HEAD bucket 成功，可列出 `_index/` 前缀对象，显示往返延迟。
 2. works.jsonl 全量拉取解析入库；坏行跳过且计数可见。
 3. 二次启动增量同步：水位正确推进，重叠区合并幂等，不产生重复行。
-4. PIN 设置/解锁流程闭环；SK 经 PIN 派生密钥 AES-256-GCM 加密落盘，解锁后可解密使用，错误 PIN 解不开。
+4. PIN 设置/解锁流程闭环；SK 经 PIN 派生密钥 AES-256-CBC + HMAC-SHA256 加密落盘，解锁后可解密使用，错误 PIN 解不开。
 5. `flutter analyze` 零告警、`flutter test` 全绿。
 
 ## 12. 风险与验收
