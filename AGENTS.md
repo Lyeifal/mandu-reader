@@ -7,6 +7,8 @@
 ## 硬约束
 
 - 仓库根目录名含 `&`（`D:\Code\comics&book`），**Flutter 工程在 `app/` 子目录**。bash 命令中涉及该路径必须加引号；不要试图把工程放根目录。
+- **跑 `flutter test` / `flutter run` 必须先 `subst Z: "D:\Code\comics&book"` 并 `cd /z/app`**：`&` 会截断原生资产钩子拼出的 cmd 命令行，从真实路径跑必败。`flutter analyze` 不受限。
+- 包名是 **`mandu_reader`**（漫读拼音 man-du），注意不是 `mundu`。import 写错时 CFE 只报 "Couldn't resolve the package"，不提示拼写。
 - 本机无 Visual Studio / Android SDK：验证手段只有 `flutter analyze` 和 `flutter test`。不要声称跑过真机。
 - 桶凭证、PIN 等秘密绝不入库；不要在代码里写死任何 endpoint / AK / SK。
 - 提交信息用英文、祈使句：`feat: ...` / `fix: ...` / `chore: ...`。
@@ -30,7 +32,9 @@
 ## 验证清单（每次改动后）
 
 ```bash
-cd app
+subst Z: "D:\Code\comics&book"   # 新登录会话先映射
+export PATH="/d/Code/opt/flutter/bin:$PATH"
+cd /z/app
 dart format --output=none --set-exit-if-changed .
 flutter analyze            # 必须零告警
 flutter test               # 必须全绿

@@ -319,7 +319,7 @@ settings 表结构：`key TEXT PK, value TEXT, scope TEXT('device'|'synced'), up
 
 ## 11. 路线图
 
-1. **M1 桶链路** ✅（2026-09-28 骨架完成）：凭证 + PIN、MinIO SDK 连通、_index 增量同步、本地 SQLite。详见下方细化验收。
+1. **M1 桶链路** ✅（2026-09-28 完成）：凭证 + PIN、MinIO SDK 连通、_index 同步、本地 SQLite。同步策略：HEAD 取 etag → 未变零流量；变了**整文件拉取 + 按 id 幂等合并**（字节区间增量曾实现后回退——水位无法感知已消费区段的同长度改写；字节级增量留 M7，届时由写入者加 generation 头）。详见下方细化验收。
 2. **M2 阅读器骨架**：漫画竖滑（切片虚拟化）+ 小说文本渲染（字号/行距/翻页）。开工前 spike：flutter_avif 解码 10 张实际漫画验证内存/缩放。
 3. **M3 漫画完整**：横翻/双页/自动翻页(可调时)/书签/进度。开工前 spike：InteractiveViewer 自建缩放层跟手度。
 4. **M4 小说完整**：护眼预设/自定义/定时切换/字体导入(_fonts)/书内搜索。
@@ -331,9 +331,9 @@ settings 表结构：`key TEXT PK, value TEXT, scope TEXT('device'|'synced'), up
 
 1. 录入桶配置后 HEAD bucket 成功，可列出 `_index/` 前缀对象，显示往返延迟。
 2. works.jsonl 全量拉取解析入库；坏行跳过且计数可见。
-3. 二次启动增量同步：水位正确推进，重叠区合并幂等，不产生重复行。
-4. PIN 设置/解锁流程闭环；SK 经 PIN 派生密钥 AES-256-CBC + HMAC-SHA256 加密落盘，解锁后可解密使用，错误 PIN 解不开。
-5. `flutter analyze` 零告警、`flutter test` 全绿。
+3. 二次启动同步：etag 未变零流量；有变化整文件拉取按 id 幂等合并，无重复行，`local_only` 行不受影响。
+4. PIN 设置/解锁流程闭环；SK 经 PIN 派生密钥 AES-256-CBC + HMAC-SHA256 加密落盘，解锁后可解密使用，错误 PIN 解不开（PBKDF2 以 RFC 7914 向量单测验证）。
+5. `flutter analyze` 零告警、`flutter test` 全绿（本机经 `subst Z:` 盘符运行，原因见 README）。
 
 ## 12. 风险与验收
 
@@ -341,7 +341,8 @@ settings 表结构：`key TEXT PK, value TEXT, scope TEXT('device'|'synced'), up
 |---|---|
 | flutter_avif 解码性能 | M2 首周 spike：10 张实际漫画 AVIF 验证解码/内存/缩放 |
 | 漫画缩放方案 | photo_view 已停止维护 → 自建 InteractiveViewer 缩放层，M3 spike 验证，必要时评估维护中的 fork |
-| minio Dart 包能力缺口（copyObject / 预签名 GET / 分片） | M1 已验证基础读写；缺口出现时自补轻量 SigV4 请求层（设计已预留 `BucketClient` 封装） |
+| minio Dart 包能力核对（M1 实测结论） | `copyObject`/`presignedGetObject` 可用 ✅；`getObject` 无 range 参数 → 区间读走「预签名 URL + 自加 Range 头」（该 SDK 预签名只签 host，SigV4 合法）；`putObject` 无 headers 参数 → Content-MD5 待 M6 自补 SigV4 请求层时带上 |
+| FTS5 虚表建表 | drift_dev 不识别 `USING fts5` 模块（需额外注册）→ 改为运行时 `customStatement` 建表（MigrationStrategy.onCreate），查询统一走 customSelect |
 | 书源规则失效 | 单源测试 + 失败禁用 + 多源冗余搜索 |
 | events.jsonl 膨胀 | 进度事件 30 天折叠（§5.1）；Versioning 兜底 |
 | 源站反爬 | 内置限速与 UA 轮换；只抓正文不抓整站；失败退手动 |
