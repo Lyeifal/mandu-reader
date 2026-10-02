@@ -36,7 +36,10 @@ dependencies:
   path_provider: ^2.1.6
   intl: ^0.20.3
   logging: ^1.3.0
-
+  flutter_avif: ^3.1.0
+  epubx: ^4.0.0
+  image: ^3.3.0
+  local_auth: ^3.0.2
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -46,6 +49,15 @@ dev_dependencies:
   # drift 代码生成
   drift_dev: ^2.35.0
   build_runner: ^2.4.13
+  archive: ^3.6.1
 
 flutter:
   uses-material-design: true
+
+# sqlite3 的 build hook 默认从 GitHub Releases 下载预编译库，本网络访问不通。
+# 经 gh-proxy 代理下载；代理失效时换一个可用代理或恢复官方地址即可。
+hooks:
+  user_defines:
+    sqlite3:
+      source: sqlite3
+      url_pattern: "https://gh-proxy.com/https://github.com/simolus3/sqlite3.dart/releases/download/$RELEASE_TAG/$FILENAME"

@@ -11,6 +11,11 @@ pluginManagement {
     includeBuild("$flutterSdkPath/packages/flutter_tools/gradle")
 
     repositories {
+        // 国际出口限速：阿里镜像优先，官方源兜底（maven.google.com 在本网络 TLS 握手失败）
+        maven("https://maven.aliyun.com/repository/google")
+        maven("https://maven.aliyun.com/repository/gradle-plugin")
+        maven("https://maven.aliyun.com/repository/central")
+        maven("https://dl.google.com/dl/android/maven2/")
         google()
         mavenCentral()
         gradlePluginPortal()
