@@ -367,6 +367,9 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
       ButtonSegment(value: 'novel', label: Text('小说')),
     ],
     selected: {_tab},
+    // M3 选中段默认带对勾图标，且各段等宽：「JM漫画」+对勾会把三段一起
+    // 拉宽，手机端顶栏直接横向溢出（黑黄条纹报错）。选中态靠底色区分即可。
+    showSelectedIcon: false,
     style: _compact ? _tabsCompactStyle : null,
     onSelectionChanged: (v) => _switchTab(v.first),
   );
