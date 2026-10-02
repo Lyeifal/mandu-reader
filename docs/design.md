@@ -190,6 +190,8 @@ library/
 
 **schema_version**：每行事件带 `schema_version`（当前 1），未来迁移时按版本分支处理。
 
+**落地状态（2026-10-02）**：App 端已实现事件追加与重放——阅读器退出写 `novel_progress`/`manga_progress`、书签增删写 `bookmark`/`bookmark_delete`（本地 drift 即时落库 + 桶事件尽力追加）；书架「同步」第二步重放 events.jsonl（progress LWW、书签 per-id 最新状态决胜，本地较新行不被旧事件回退）。30 天折叠仍为后台任务，待 M7；解析器已接受 snapshot 行。设置项 LWW 同步（`synced` scope 落 events）未实现。
+
 ### 5.2 错误处理与一致性
 
 - 统一异常层级：`StorageException` → `BucketConfigException` / `ConnectionException` / `ObjectNotFoundException` / `ChecksumMismatchException` / `RetryExhaustedException`。
