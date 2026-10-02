@@ -3,8 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers.dart';
 import 'auth_controller.dart';
+import 'biometric_auth.dart';
 
-/// PIN 门控页：首次设置 PIN / 解锁。
+/// PIN 门控页：首次设置 PIN / 解锁（移动端可指纹）。
 class AuthGatePage extends ConsumerStatefulWidget {
   const AuthGatePage({super.key});
 
@@ -18,6 +19,46 @@ class _AuthGatePageState extends ConsumerState<AuthGatePage> {
   final _pinController = TextEditingController();
   final _confirmController = TextEditingController();
   String? _error;
+  bool _bioSupported = false;
+  bool _autoPrompted = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkBiometric();
+  }
+
+  Future<void> _checkBiometric() async {
+    final bio = ref.read(biometricAuthProvider);
+    if (!BiometricAuth.platformSupported) return;
+    final can = await bio.canUnlock();
+    if (mounted) setState(() => _bioSupported = can);
+  }
+
+  /// 已进入锁屏且启用过指纹：自动唤起一次系统生物识别。
+  Future<void> _tryAutoBiometric() async {
+    if (_autoPrompted) return;
+    _autoPrompted = true;
+    final bio = ref.read(biometricAuthProvider);
+    if (!await bio.canUnlock()) return;
+    if (!await ref.read(authControllerProvider.notifier).isBiometricEnabled()) {
+      return;
+    }
+    if (await bio.authenticate()) {
+      await ref.read(authControllerProvider.notifier).unlockWithBiometric();
+    }
+  }
+
+  Future<void> _unlockBiometric() async {
+    final bio = ref.read(biometricAuthProvider);
+    if (!await bio.authenticate()) return; // 用户取消或失败，保持锁屏
+    final ok = await ref
+        .read(authControllerProvider.notifier)
+        .unlockWithBiometric();
+    if (!ok && mounted) {
+      setState(() => _error = '指纹解锁未启用或 PIN 已变更，请用 PIN 解锁');
+    }
+  }
 
   @override
   void dispose() {
@@ -60,6 +101,11 @@ class _AuthGatePageState extends ConsumerState<AuthGatePage> {
         error: (e, _) => Center(child: Text('初始化失败: $e')),
         data: (state) {
           final isSetup = state.phase == AuthPhase.needsSetup;
+          if (!isSetup && _bioSupported && !_autoPrompted) {
+            WidgetsBinding.instance.addPostFrameCallback(
+              (_) => _tryAutoBiometric(),
+            );
+          }
           return Padding(
             padding: const EdgeInsets.all(24),
             child: Column(
@@ -105,6 +151,14 @@ class _AuthGatePageState extends ConsumerState<AuthGatePage> {
                   onPressed: isSetup ? _setup : _unlock,
                   child: Text(isSetup ? '设置并进入' : '解锁'),
                 ),
+                if (!isSetup && _bioSupported) ...[
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: _unlockBiometric,
+                    icon: const Icon(Icons.fingerprint),
+                    label: const Text('指纹解锁'),
+                  ),
+                ],
               ],
             ),
           );

@@ -11,13 +11,18 @@ class SettingsRepository {
   /// M1 先落最常用的默认值，其余随里程碑补充。
   static const defaults = <String, String>{
     'reader.manga.autoPageIntervalSeconds': '5',
+    'reader.manga.scrollPercent': '92',
     'reader.manga.mode': 'vertical',
+    'reader.manga.snap': 'false',
     'reader.manga.doublePage': 'false',
     'reader.novel.themePreset': 'day',
     'reader.novel.fontSizePx': '16',
     'reader.novel.lineHeight': '1.6',
+    'reader.novel.paging': 'scroll',
+    'reader.brightness': '1.0',
     'cache.imageLimitMb': '2048',
     'cache.autoUpdateOnWifi': 'false',
+    'storage.local_dir': '',
   };
 
   Future<String?> get(String key) async {

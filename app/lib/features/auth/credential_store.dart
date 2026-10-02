@@ -11,6 +11,13 @@ abstract class CredentialStore {
   Future<void> savePin(String pin);
   Future<bool> verifyPin(String pin);
 
+  /// 指纹解锁用的 PIN 副本（安全存储加密落盘；读取前必须先过系统生物识别）。
+  /// 修改 PIN 时自动清除。
+  Future<bool> hasBiometricPin();
+  Future<void> saveBiometricPin(String pin);
+  Future<String?> readBiometricPin();
+  Future<void> clearBiometricPin();
+
   /// 非机密连接参数（endpoint/port/region/bucket/AK）。
   Future<BucketConfig?> readBucketConfig();
   Future<void> saveBucketConfig(BucketConfig config);
@@ -29,6 +36,7 @@ class SecureCredentialStore implements CredentialStore {
   SecureCredentialStore([this._storage = const FlutterSecureStorage()]);
 
   static const _keyPinProbe = 'pin_probe';
+  static const _keyBiometricPin = 'biometric_pin';
   static const _keyBucketConfig = 'bucket_config';
   static const _keySecretKey = 'encrypted_sk';
 
@@ -45,7 +53,24 @@ class SecureCredentialStore implements CredentialStore {
       key: _keyPinProbe,
       value: PinCrypto.encrypt(_pinProbe, pin),
     );
+    // PIN 变更后旧的指纹副本即失效，避免用旧 PIN 解锁
+    await clearBiometricPin();
   }
+
+  @override
+  Future<bool> hasBiometricPin() async =>
+      await _storage.containsKey(key: _keyBiometricPin);
+
+  @override
+  Future<void> saveBiometricPin(String pin) async =>
+      _storage.write(key: _keyBiometricPin, value: pin);
+
+  @override
+  Future<String?> readBiometricPin() => _storage.read(key: _keyBiometricPin);
+
+  @override
+  Future<void> clearBiometricPin() async =>
+      _storage.delete(key: _keyBiometricPin);
 
   @override
   Future<bool> verifyPin(String pin) async {

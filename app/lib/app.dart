@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'data/db/app_database.dart';
 import 'features/auth/auth_gate_page.dart';
 import 'features/library/shelf_page.dart';
 import 'features/providers.dart';
+import 'features/reader/reader_page.dart';
 import 'features/settings/settings_page.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -26,10 +28,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       if (auth == null || !auth.isUnlocked) {
         return loc == AuthGatePage.path ? null : AuthGatePage.path;
       }
-      final cfg = ref.read(bucketConfigControllerProvider).value;
-      if ((cfg == null || cfg.secretKey.isEmpty) && loc != SettingsPage.path) {
-        return SettingsPage.path;
-      }
+      // 解锁后直接去书架（漫画/小说页签）；桶未配置时同步/测试会提示，
+      // 不再强制跳设置页打断浏览
       if (loc == AuthGatePage.path) return ShelfPage.path;
       return null;
     },
@@ -46,6 +46,10 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: ShelfPage.path,
         builder: (context, state) => const ShelfPage(),
       ),
+      GoRoute(
+        path: '/reader',
+        builder: (context, state) => ReaderPage(work: state.extra! as Work),
+      ),
     ],
   );
 });
@@ -58,8 +62,15 @@ class ManduApp extends ConsumerWidget {
     final router = ref.watch(routerProvider);
     return MaterialApp.router(
       title: '漫读',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.teal,
+          brightness: Brightness.dark,
+        ),
+        scaffoldBackgroundColor: const Color(0xFF16161C),
+        cardColor: const Color(0xFF23232B),
+        dividerColor: const Color(0xFF26262E),
       ),
       routerConfig: router,
     );

@@ -39,6 +39,28 @@ class AuthController extends AsyncNotifier<AuthState> {
     return ok;
   }
 
+  /// 指纹解锁：系统生物识别通过后取回 PIN 副本，走正常校验。
+  /// 返回是否解锁成功。
+  Future<bool> unlockWithBiometric() async {
+    final store = ref.read(credentialStoreProvider);
+    final pin = await store.readBiometricPin();
+    if (pin == null) return false;
+    return unlock(pin);
+  }
+
+  /// 启用指纹解锁（须处于已解锁状态，用内存中的 PIN 存副本）。
+  Future<void> enableBiometric() async {
+    final pin = state.value?.pin;
+    if (pin == null) throw StateError('未解锁，无法启用指纹解锁');
+    await ref.read(credentialStoreProvider).saveBiometricPin(pin);
+  }
+
+  Future<void> disableBiometric() =>
+      ref.read(credentialStoreProvider).clearBiometricPin();
+
+  Future<bool> isBiometricEnabled() =>
+      ref.read(credentialStoreProvider).hasBiometricPin();
+
   Future<void> lock() async {
     final has = await ref.read(credentialStoreProvider).hasPin();
     state = AsyncData(AuthState(has ? AuthPhase.locked : AuthPhase.needsSetup));
