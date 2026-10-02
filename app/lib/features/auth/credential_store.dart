@@ -78,7 +78,9 @@ class SecureCredentialStore implements CredentialStore {
     if (payload == null) return false;
     try {
       return PinCrypto.decrypt(payload, pin) == _pinProbe;
-    } on PinMismatchException {
+    } on Object {
+      // 存储损坏（非 JSON / 字段缺失 / 坏 base64）一律视为校验失败，
+      // 不把 FormatException、TypeError 泄漏给解锁流程。
       return false;
     }
   }
