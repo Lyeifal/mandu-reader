@@ -3,6 +3,8 @@
 > 单人自用 / 无服务端 / S3 兼容桶直连 / Android + 桌面端
 > 定稿日期：2026-09-28
 > 修订记录：2026-09-28 初稿完善（技术选型落地、合并语义明确化、测试策略、错误处理一致性、仓库布局）
+>           2026-09-30 增补 §14：JM 漫画下载 Dart 原生化、AVIF 压缩两条路径与重试语义
+>           2026-10-02 明确 cover 前缀契约（§4.1）与 App 端索引写入范围（§3 单写入者约定的例外）
 
 ---
 
@@ -28,6 +30,7 @@
 │  │   ├─ LRU 缓存：图片 2GB(手机)/10GB(桌面)，文本整本缓存     │
 │  │   └─ Keystore：桶凭证加密存储                             │
 │  ├─ 源引擎：JSON 书源解析器（搜索/目录/正文/翻页规则）          │
+│  ├─ JM 下载器：API 直连 + AES 解密 + 条带还原 + AVIF 压缩      │
 │  └─ BucketClient：基于 minio 包的 SigV4 直连               │
 │                    OSS / COS / R2 / MinIO                  │
 └──────────────────────────┬──────────────────────────────┘
@@ -94,6 +97,8 @@ library/
 
 **单写入者约定**：`_index/works.jsonl` 只有「桌面整理工具」和「上传归档」流程写；App 端只追加 `_state/events.jsonl`。App 不直接改索引，避免多设备写冲突。
 
+**例外（2026-10-02 落地实现）**：App 的「上传归档」「删除云端」「压缩云端回写」三处会读-改-写 works.jsonl（过滤旧行 + 追加新行/墓碑行）。单人单设备下与桌面工具并行概率低、且重试安全（对象整写原子）；多设备场景若引入桌面工具写入方，需改为带 generation 头的乐观并发。
+
 ## 4. 元数据 Schema
 
 ### 4.1 works.jsonl（书架索引行）
@@ -109,9 +114,15 @@ library/
   "total_chars": 2350000,
   "pages": null,                      // 漫画用
   "last_updated": "2026-09-27",
-  "cover": "小说/…/cover.avif",
-  "origin": "manual",                 // manual 手动上传 | source:<源ID> 源下载
-  "local_only": false                 // true = 只存在于本设备（见 §8.3）
+  "cover": "小说/…/cover.avif",            // 桶内 key：写入方统一带 library/ 前缀（如
+                                        // library/小说/…/cover.avif）；不带前缀的历史行
+                                        // App 读取侧自动归一，两种形式都合法
+  "origin": "manual",                 // manual 手动上传 | source:<源ID> 源下载（JM 为 source:jmcomic）
+  "local_only": false,                // true = 只存在于本设备（见 §8.3）
+  "has_zh": true,                     // 是否有中文；缺省 true（App 手动添加入口默认有汉化）
+  "zh_quality": "medium",             // 汉化质量 high | medium | low，缺省 medium
+  "published_at": "2024-03",          // 发布时间，精确到月（YYYY-MM，可给完整日期，解析归一）
+  "completed_at": "2026-01"           // 完结时间，精确到月（连载中为 null）
 }
 ```
 
@@ -327,6 +338,8 @@ settings 表结构：`key TEXT PK, value TEXT, scope TEXT('device'|'synced'), up
 6. **M6 追更与归档**：增量更新、上传决策流、local_only 管理。
 7. **M7 打磨**：FTS 调优、缓存清理策略、Android 打包、桌面端出包。
 
+计划外已落地：**JM 漫画下载 + AVIF 压缩管线**（2026-09-29/30，详见 §14）。
+
 ### M1 细化验收
 
 1. 录入桶配置后 HEAD bucket 成功，可列出 `_index/` 前缀对象，显示往返延迟。
@@ -364,8 +377,35 @@ settings 表结构：`key TEXT PK, value TEXT, scope TEXT('device'|'synced'), up
 
 | 层 | 内容 | 方式 |
 |---|---|---|
-| 纯函数 | jsonl 解析/坏行跳过、事件重放合并、path_helper 构造↔解析、章节 offset 计算、书源规则引擎 | 普通单测，无 binding |
+| 纯函数 | jsonl 解析/坏行跳过、事件重放合并、path_helper 构造↔解析、章节 offset 计算、书源规则引擎、withRetry 退避编排、worthReplacing 判定、pageKeysOf 选页 | 普通单测，无 binding |
 | drift | works/bookmarks/progress/settings CRUD、FTS5 中文检索、同步水位推进 | 内存库测试 |
 | 加密 | PIN 派生/加解密往返、错误 PIN 失败 | 普通单测 |
 | S3 封装 | 以 fake 实现顶替 `BucketClient` 接口测同步流程 | 接口注入 |
 | UI | 阅读器翻页、书签交互 | widget test（自 M2 起） |
+
+## 14. JM 漫画下载与 AVIF 压缩管线（2026-09-30 增补）
+
+计划外落地：JM 下载先于书源引擎（M5）完成，2026-09-29 起 Dart 原生化，不依赖 Python / jmcomic 外部源码，Windows / Android 均可直接下载。
+
+### 14.1 分层
+
+| 目录 | 职责 |
+|---|---|
+| `features/jm/` | 站方 API 层：jm_crypto（AES 响应解密）、jm_api（协议常量与请求）、jm_scramble（图片条带还原）、jm_account / jm_browse / jm_downloader（账号、浏览、并发下载编排） |
+| `features/downloader/` | 本地管线：jm_models（纯函数与驱动行模型：pageKeysOf 选页、worthReplacing 判定）、jm_pipeline（下载后逐页 AVIF 转码）、avif_transcoder（AvifTranscoder：ffmpeg 封装、libaom crf 档位、ssim）、cloud_compress（桶内对象重压缩）、jm_tasks（任务状态与 startJmDownload）、jm_download_dialog（下载 UI） |
+
+加解密要点：响应解密密钥是 `md5(ts+密钥)` 的 **ASCII hex 串本身（32 字节，AES-256）**，不是原始摘要。协议常量写死在 jm_crypto.dart / jm_api.dart，服务端轮换时需同步更新。
+
+### 14.2 AVIF 压缩两条路径
+
+**本地路径（下载时压缩，`JmPipeline`）**：逐页 ffmpeg 转码 → ssim/体积判定（worthReplacing）→ 就地替换原图。ffmpeg 可空，缺失时自动跳过保留原图。
+
+**云端路径（已有对象重压缩，`compressCloudMangas`）**：pageKeysOf 只挑三位数字页（封面/章节表剔除）→ 对象「下载 → 转码 → 判定 → PUT → DELETE 原 key」，每轮重试重新下载 → `_rewriteIndex` 重写索引 → 书架页 SnackBar 报告（replaced / keptOriginal / failed），`failed > 0` 时带「重试」按钮重跑整批。
+
+### 14.3 重试语义
+
+统一入口 `core/retry.dart` 的 `withRetry`：指数退避 1×/2×/4×（baseDelay 默认 1s，封顶 8s），`attempts` **含首次尝试**（默认 3），耗尽抛最后一次异常；`shouldRetry` 返回 false 的确定性失败立即抛出；`onRetry` 在每次重试前回调（进度提示用）。
+
+- 两条压缩路径的转码与桶 IO 均包 withRetry，**重试耗尽才计入 failed**；
+- 进程级错误（ProcessException / FileSystemException / 缺 ffmpeg，见 jm_pipeline.dart 顶层 `isProcessLevelError`）不重试，直接跳过剩余页；
+- 转码成功但 worthReplacing 判定「不值得替换」按失败处理：走重试，耗尽后归入 kept（保留原图）统计——重试不改变判定结论，只是把瞬时故障和真正的「不值得」分开。
