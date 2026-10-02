@@ -27,14 +27,23 @@ Future<void> deleteLocalWorkFiles(WidgetRef ref, Work work) async {
     final db = ref.read(appDatabaseProvider);
     await (db.delete(db.works)..where((t) => t.id.equals(work.id))).go();
     await db.customStatement('DELETE FROM works_fts WHERE id = ?', [work.id]);
+    await (db.delete(
+      db.bookmarks,
+    )..where((t) => t.workId.equals(work.id))).go();
+    await (db.delete(
+      db.readingProgress,
+    )..where((t) => t.workId.equals(work.id))).go();
   }
 }
 
 /// 作品在桶里的目录：与阅读器定位逻辑一致（cover 所在目录；
 /// 小说可按路径规则推导，漫画必须有 cover）。
+/// cover 可能不带 `library/` 前缀（设计文档 §4.1 示例），读取侧归一。
 String? cloudDirOf(Work work) {
   final cover = work.cover;
-  if (cover != null && cover.isNotEmpty) return p.dirname(cover);
+  if (cover != null && cover.isNotEmpty) {
+    return p.dirname(LibraryPaths.normalizeKey(cover));
+  }
   if (work.type == 'novel') {
     return LibraryPaths.novelDir(
       author: work.author,
