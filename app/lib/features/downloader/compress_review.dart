@@ -17,7 +17,25 @@ import 'cloud_compress.dart' show pageKeysOf, rewriteWorkIndex;
 import 'display_image.dart';
 import 'review_models.dart';
 
-/// 压缩人工审阅：逐页对比「原图 vs 本地转码的 AVIF 候选」，由用户决定保留哪张。
+/// 选书列表里的一行：作品 + 页面概况 + 待审页队列。
+class _WorkEntry {
+  _WorkEntry({
+    required this.work,
+    required this.dir,
+    required this.stats,
+    required this.pendingKeys,
+  });
+
+  final Work work;
+  final String dir;
+  final PageStats stats;
+
+  /// 待审的原图页 key（有序），点开直接审，免去二次列举。
+  final List<String> pendingKeys;
+}
+
+/// 压缩人工审阅：先选书（看得到每本多少页原图/多少页 AVIF、原图共多大），
+/// 再逐页对比「原图 vs 本地转码的 AVIF 候选」，由用户决定保留哪张。
 ///
 /// 两种对比模式（顶栏切换）：
 /// - 并排：左右两张图，图底半透明横条标体积
@@ -34,12 +52,14 @@ class CompressReviewDialog extends ConsumerStatefulWidget {
 }
 
 class _CompressReviewDialogState extends ConsumerState<CompressReviewDialog> {
-  // 队列：云端漫画逐本展开，作品内逐页推进
-  List<Work> _cloudWorks = const [];
-  final List<String> _pending = [];
+  // 选书阶段
+  final List<_WorkEntry> _entries = [];
+  bool _scanning = true;
+
+  // 审页阶段（单本）
   Work? _work;
+  final List<String> _pending = [];
   String _dir = '';
-  int _workIdx = 0;
   int _pageIdx = 0;
   int _decided = 0;
   final _touched = <String>{};
@@ -47,8 +67,7 @@ class _CompressReviewDialogState extends ConsumerState<CompressReviewDialog> {
   // 当前页
   ReviewItem? _item;
   bool _loading = true;
-  bool _done = false;
-  String? _error; // 全局错误（ffmpeg 不可用/书架为空）
+  String? _error; // 全局错误（ffmpeg 不可用/无法列举）
   String? _pageError; // 单页错误（下载/转码失败，可跳过）
 
   String _mode = 'side'; // side | wipe
@@ -57,6 +76,8 @@ class _CompressReviewDialogState extends ConsumerState<CompressReviewDialog> {
   AvifTranscoder? _transcoder;
   Directory? _tmp;
   var _seq = 0;
+
+  bool get _reviewing => _work != null;
 
   AppDatabase get _db => ref.read(appDatabaseProvider);
 
@@ -82,23 +103,59 @@ class _CompressReviewDialogState extends ConsumerState<CompressReviewDialog> {
         p.join((await getTemporaryDirectory()).path, 'compress_review'),
       );
       await _tmp!.create(recursive: true);
-      final rows = await (_db.select(
-        _db.works,
-      )..where((t) => t.type.equals('manga'))).get();
-      _cloudWorks = rows
-          .where((w) => !w.localOnly && w.cover != null && w.cover!.isNotEmpty)
-          .toList();
-      if (_cloudWorks.isEmpty) {
-        throw StateError('书架里没有云端漫画可审');
-      }
-      await _advance();
+      await _rescan();
     } on Object catch (e) {
       if (mounted) {
         setState(() {
-          _loading = false;
+          _scanning = false;
           _error = e.toString().replaceFirst('StateError: ', '');
         });
       }
+    }
+  }
+
+  /// 全量扫描云端漫画的页面概况，按待审页数降序（多的在前）。
+  Future<void> _rescan() async {
+    setState(() => _scanning = true);
+    final rows = await (_db.select(
+      _db.works,
+    )..where((t) => t.type.equals('manga'))).get();
+    final works = rows
+        .where((w) => !w.localOnly && w.cover != null && w.cover!.isNotEmpty)
+        .toList();
+    final entries = <_WorkEntry>[];
+    for (final w in works) {
+      try {
+        final dir = p.dirname(LibraryPaths.normalizeKey(w.cover!));
+        final objects = await withRetry(
+          () => _client.listObjects(dir, max: 5000),
+        );
+        final stats = summarizePages(objects);
+        if (stats.hasPending) {
+          entries.add(
+            _WorkEntry(
+              work: w,
+              dir: dir,
+              stats: stats,
+              pendingKeys: pendingPageKeys(objects.map((e) => e.key).toList()),
+            ),
+          );
+        }
+      } on Object {
+        // 列目录失败：这本跳过，不挡其他书
+      }
+    }
+    entries.sort((a, b) {
+      final c = b.stats.raw.compareTo(a.stats.raw);
+      return c != 0 ? c : b.stats.rawBytes.compareTo(a.stats.rawBytes);
+    });
+    if (mounted) {
+      setState(() {
+        _entries
+          ..clear()
+          ..addAll(entries);
+        _scanning = false;
+      });
     }
   }
 
@@ -111,54 +168,46 @@ class _CompressReviewDialogState extends ConsumerState<CompressReviewDialog> {
     super.dispose();
   }
 
-  /// 推进到下一个待审页：跨作品时先收尾当前作品（索引/封面回写）。
+  /// 从选书列表进入某本的审页。
+  Future<void> _openEntry(_WorkEntry e) async {
+    setState(() {
+      _work = e.work;
+      _dir = e.dir;
+      _pending
+        ..clear()
+        ..addAll(e.pendingKeys);
+      _pageIdx = -1;
+      _item = null;
+      _loading = true;
+      _pageError = null;
+    });
+    await _advance();
+  }
+
+  /// 审完/返回时收尾当前作品（索引与派生封面回写），回到选书列表。
+  Future<void> _closeWork() async {
+    final w = _work;
+    _work = null;
+    _item = null;
+    if (w != null) await _finalizeWork(w);
+    ref.invalidate(shelfWorksProvider);
+    await _rescan();
+  }
+
+  /// 推进到下一个待审页；本审完则回选书列表。
   Future<void> _advance() async {
     _pageIdx++;
-    while (_work == null || _pageIdx >= _pending.length) {
-      if (_work != null) {
-        final w = _work!;
-        _work = null;
-        await _finalizeWork(w);
-      }
-      // 找到下一本还有待审页的作品
-      var loaded = false;
-      while (_workIdx < _cloudWorks.length) {
-        final w = _cloudWorks[_workIdx];
-        _workIdx++;
-        try {
-          final dir = p.dirname(LibraryPaths.normalizeKey(w.cover!));
-          final keys = await withRetry(() => _client.listKeys(dir, max: 5000));
-          final pending = pendingPageKeys(keys);
-          if (pending.isNotEmpty) {
-            _work = w;
-            _dir = dir;
-            _pending
-              ..clear()
-              ..addAll(pending);
-            _pageIdx = 0;
-            loaded = true;
-            break;
-          }
-        } on Object {
-          // 列目录失败：跳过这本
-        }
-      }
-      if (!loaded) {
-        if (mounted) {
-          setState(() {
-            _loading = false;
-            _done = true;
-          });
-          ref.invalidate(shelfWorksProvider);
-        }
-        return;
-      }
+    if (_pageIdx >= _pending.length) {
+      await _closeWork();
+      return;
     }
     await _prepareCurrent();
   }
 
   /// 下载当前页原图 + 本地转 AVIF 候选。
   Future<void> _prepareCurrent() async {
+    final old = _item;
+    if (old != null) await _deleteTemps(old);
     setState(() {
       _loading = true;
       _pageError = null;
@@ -229,7 +278,7 @@ class _CompressReviewDialogState extends ConsumerState<CompressReviewDialog> {
     }
     _decided += _pending.length - _pageIdx - 1;
     _pageIdx = _pending.length;
-    await _advance();
+    await _closeWork();
   }
 
   /// 作品审完：重列目录，回写索引行（compressed 标记）与派生封面。
@@ -273,43 +322,56 @@ class _CompressReviewDialogState extends ConsumerState<CompressReviewDialog> {
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
+              padding: const EdgeInsets.fromLTRB(8, 12, 8, 4),
               child: Row(
                 children: [
-                  Icon(
-                    Icons.compare,
-                    size: 20,
-                    color: theme.colorScheme.primary,
-                  ),
+                  if (_reviewing)
+                    IconButton(
+                      tooltip: '返回选书（本作品已生效的决定会保留）',
+                      icon: const Icon(Icons.arrow_back),
+                      onPressed: _loading ? null : _closeWork,
+                    )
+                  else
+                    Padding(
+                      padding: const EdgeInsets.only(left: 8),
+                      child: Icon(
+                        Icons.compare,
+                        size: 20,
+                        color: theme.colorScheme.primary,
+                      ),
+                    ),
                   const SizedBox(width: 8),
                   Text('压缩审阅', style: theme.textTheme.titleMedium),
-                  const SizedBox(width: 16),
-                  SegmentedButton<String>(
-                    segments: const [
-                      ButtonSegment(
-                        value: 'side',
-                        icon: Icon(Icons.view_column, size: 16),
-                        label: Text('并排'),
+                  if (_reviewing) ...[
+                    const SizedBox(width: 16),
+                    SegmentedButton<String>(
+                      segments: const [
+                        ButtonSegment(
+                          value: 'side',
+                          icon: Icon(Icons.view_column, size: 16),
+                          label: Text('并排'),
+                        ),
+                        ButtonSegment(
+                          value: 'wipe',
+                          icon: Icon(Icons.swap_horizontal_circle, size: 16),
+                          label: Text('竖线对比'),
+                        ),
+                      ],
+                      selected: {_mode},
+                      showSelectedIcon: false,
+                      style: const ButtonStyle(
+                        visualDensity: VisualDensity.compact,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
-                      ButtonSegment(
-                        value: 'wipe',
-                        icon: Icon(Icons.swap_horizontal_circle, size: 16),
-                        label: Text('竖线对比'),
-                      ),
-                    ],
-                    selected: {_mode},
-                    showSelectedIcon: false,
-                    style: const ButtonStyle(
-                      visualDensity: VisualDensity.compact,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      onSelectionChanged: (v) =>
+                          setState(() => _mode = v.first),
                     ),
-                    onSelectionChanged: (v) => setState(() => _mode = v.first),
-                  ),
+                  ],
                   const Spacer(),
                   Text(
-                    _work == null
-                        ? (_done ? '审阅完成 · 已决定 $_decided 页' : '')
-                        : '《${_work!.title}》 第 ${_pageIdx + 1}/${_pending.length} 页 · 已决定 $_decided 页',
+                    _reviewing
+                        ? '《${_work!.title}》 第 ${_pageIdx + 1}/${_pending.length} 页 · 已决定 $_decided 页'
+                        : '本次已决定 $_decided 页',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.outline,
                     ),
@@ -323,38 +385,128 @@ class _CompressReviewDialogState extends ConsumerState<CompressReviewDialog> {
               ),
             ),
             const Divider(height: 1),
-            Expanded(child: _body(theme)),
-            const Divider(height: 1),
-            _actions(theme),
+            Expanded(
+              child: _error != null
+                  ? Center(child: Text('无法开始审阅：$_error'))
+                  : _reviewing
+                  ? _reviewBody(theme)
+                  : _pickerBody(theme),
+            ),
+            if (_reviewing) ...[const Divider(height: 1), _actions(theme)],
           ],
         ),
       ),
     );
   }
 
-  Widget _body(ThemeData theme) {
-    if (_error != null) {
-      return Center(child: Text('无法开始审阅：$_error'));
-    }
-    if (_done) {
-      return Center(
+  // ---------------------------------------------------------------- 选书
+
+  Widget _pickerBody(ThemeData theme) {
+    if (_scanning) {
+      return const Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.task_alt, size: 48),
-            const SizedBox(height: 12),
-            Text('审阅完成，共决定 $_decided 页'),
-            const SizedBox(height: 8),
-            Text(
-              '选择「跳过」的页面下次审阅还会出现',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.outline,
-              ),
-            ),
+            CircularProgressIndicator(),
+            SizedBox(height: 8),
+            Text('正在扫描云端漫画页面…'),
           ],
         ),
       );
     }
+    if (_entries.isEmpty) {
+      return const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.task_alt, size: 48),
+            SizedBox(height: 12),
+            Text('所有云端漫画的页面都已是 AVIF，没有待审页'),
+          ],
+        ),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
+          child: Text(
+            '${_entries.length} 本有待审页 · 按待审页数排序 · 点选一本开始逐页审阅',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.outline,
+            ),
+          ),
+        ),
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.all(12),
+            itemCount: _entries.length,
+            itemBuilder: (context, i) => _entryTile(_entries[i]),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _entryTile(_WorkEntry e) {
+    final theme = Theme.of(context);
+    final s = e.stats;
+    final progress = s.total <= 0 ? 0.0 : s.avif / s.total;
+    final cover = ref.watch(coverSourceProvider(e.work)).value;
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      clipBehavior: Clip.antiAlias,
+      child: ListTile(
+        leading: SizedBox(
+          width: 40,
+          height: 54,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: cover == null
+                ? ColoredBox(
+                    color: theme.colorScheme.surfaceContainerHighest,
+                    child: const Icon(Icons.image_outlined, size: 18),
+                  )
+                : cover.$2
+                ? displayUrlImage(cover.$1, fit: BoxFit.cover)
+                : displayLocalImage(cover.$1, fit: BoxFit.cover),
+          ),
+        ),
+        title: Text(
+          e.work.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.bodyMedium,
+        ),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${s.raw}/${s.total} 页原图待审 · 原图共 ${formatSize(s.rawBytes)}'
+                '${s.avif > 0 ? ' · 已压 $s.avif 页' : ''}',
+                style: theme.textTheme.bodySmall,
+              ),
+              const SizedBox(height: 6),
+              LinearProgressIndicator(
+                value: progress,
+                minHeight: 3,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ],
+          ),
+        ),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () => _openEntry(e),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------- 审页
+
+  Widget _reviewBody(ThemeData theme) {
     if (_loading && _item == null) {
       return const Center(
         child: Column(
@@ -384,11 +536,14 @@ class _CompressReviewDialogState extends ConsumerState<CompressReviewDialog> {
               children: [
                 OutlinedButton(
                   onPressed: _prepareCurrent,
-                  child: const Text('重试本页'),
+                  child: const Text('重试'),
                 ),
                 const SizedBox(width: 12),
                 FilledButton(
-                  onPressed: () => _decide(ReviewDecision.skip),
+                  onPressed: () async {
+                    _decided++;
+                    await _advance();
+                  },
                   child: const Text('跳过本页'),
                 ),
               ],
@@ -525,7 +680,7 @@ class _CompressReviewDialogState extends ConsumerState<CompressReviewDialog> {
 
   Widget _actions(ThemeData theme) {
     final item = _item;
-    final busy = _loading || item == null || _done || _error != null;
+    final busy = _loading || item == null;
     final sizeText = item == null
         ? ''
         : '原图 ${formatSize(item.originalBytes)} ｜ AVIF ${formatSize(item.avifBytes)}'
@@ -537,7 +692,7 @@ class _CompressReviewDialogState extends ConsumerState<CompressReviewDialog> {
           if (_mode == 'wipe' && item != null)
             Text(sizeText, style: theme.textTheme.bodySmall),
           const Spacer(),
-          if (_work != null && _pending.length - _pageIdx > 3)
+          if (_pending.length - _pageIdx > 3)
             TextButton(
               onPressed: busy ? null : _keepRestOriginal,
               child: Text('本作品剩余 ${_pending.length - _pageIdx} 页全保留原图'),
@@ -556,7 +711,12 @@ class _CompressReviewDialogState extends ConsumerState<CompressReviewDialog> {
           ),
           const SizedBox(width: 8),
           TextButton(
-            onPressed: busy ? null : () => _decide(ReviewDecision.skip),
+            onPressed: busy
+                ? null
+                : () async {
+                    _decided++;
+                    await _advance();
+                  },
             child: const Text('跳过'),
           ),
         ],

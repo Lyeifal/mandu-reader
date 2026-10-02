@@ -811,6 +811,13 @@ class _WorkInfoSheet extends ConsumerWidget {
       if (work.completedAt != null) _row('完结', work.completedAt!),
       if (work.pages != null) _row('页数', '${work.pages}'),
       if (work.totalChars != null) _row('字数', '${work.totalChars}'),
+      if (!work.localOnly)
+        FutureBuilder<String?>(
+          future: cloudPageStatsLine(ref, work),
+          builder: (context, snap) => snap.data == null
+              ? const SizedBox.shrink()
+              : _row('页面', snap.data!),
+        ),
       if (work.lastUpdated != null) _row('更新', work.lastUpdated!),
       _row('来源', work.origin),
       if (work.localOnly) _row('存储', '仅本设备'),

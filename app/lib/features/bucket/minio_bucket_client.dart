@@ -235,6 +235,35 @@ class MinioBucketClient implements BucketClient {
   }
 
   @override
+  Future<List<BucketObjectInfo>> listObjects(
+    String prefix, {
+    int max = 5000,
+  }) async {
+    try {
+      final out = <BucketObjectInfo>[];
+      await for (final chunk in _minio.listObjects(
+        config.bucket,
+        prefix: prefix,
+        recursive: true,
+      )) {
+        for (final o in chunk.objects) {
+          final d = o as dynamic;
+          out.add(
+            BucketObjectInfo(
+              key: d.key as String,
+              size: (d.size as num?)?.toInt() ?? 0,
+            ),
+          );
+          if (out.length >= max) return out;
+        }
+      }
+      return out;
+    } on MinioError catch (e) {
+      throw _mapError('list $prefix', e);
+    }
+  }
+
+  @override
   Future<void> delete(String key) async {
     try {
       // 删除幂等，网络抖动可直接重试

@@ -9,6 +9,14 @@ class ObjectMeta {
   final DateTime? lastModified;
 }
 
+/// 带大小的对象列举结果（审阅统计用）。
+class BucketObjectInfo {
+  const BucketObjectInfo({required this.key, required this.size});
+
+  final String key;
+  final int size;
+}
+
 /// 连接测试结果（设计文档 M1 验收 1）。
 class ConnectivityResult {
   const ConnectivityResult({
@@ -50,6 +58,9 @@ abstract class BucketClient {
 
   /// 列出 prefix 下的 key（至多 [max] 个）。
   Future<List<String>> listKeys(String prefix, {int max = 20});
+
+  /// 列出 prefix 下的对象（key + 大小），供统计/审阅选书用。
+  Future<List<BucketObjectInfo>> listObjects(String prefix, {int max = 5000});
 
   /// 删除单个对象。
   Future<void> delete(String key);

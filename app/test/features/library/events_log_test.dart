@@ -56,6 +56,16 @@ class FakeBucketClient implements BucketClient {
       objects.keys.where((k) => k.startsWith(prefix)).take(max).toList();
 
   @override
+  Future<List<BucketObjectInfo>> listObjects(String prefix, {int max = 5000}) =>
+      Future.value(
+        objects.entries
+            .where((e) => e.key.startsWith(prefix))
+            .take(max)
+            .map((e) => BucketObjectInfo(key: e.key, size: e.value.length))
+            .toList(),
+      );
+
+  @override
   Future<void> delete(String key) async {
     objects.remove(key);
   }

@@ -9,6 +9,7 @@ import '../../core/exceptions.dart';
 import '../../data/db/app_database.dart';
 import '../bucket/path_helper.dart';
 import '../downloader/jm_pipeline.dart';
+import '../downloader/review_models.dart';
 import '../providers.dart';
 
 /// 删除本设备上与作品相关的文件：本地作品目录 + 云端小说的阅读缓存。
@@ -108,6 +109,22 @@ Future<void> deleteWorkFromCloud(WidgetRef ref, Work work) async {
     throw ConnectionException(
       '云端对象未删干净（${failed.length}/${keys.length} 个失败），再点一次删除云端重试',
     );
+  }
+}
+
+/// 云端作品的页面压缩概况一行（详情页展示：x 页原图 / y 页 AVIF）。
+/// 列举失败返回 null（调用方不显示该行）。
+Future<String?> cloudPageStatsLine(WidgetRef ref, Work work) async {
+  try {
+    final client = ref.read(bucketClientProvider);
+    final dir = cloudDirOf(work);
+    if (client == null || dir == null) return null;
+    final objects = await client.listObjects(dir, max: 5000);
+    final s = summarizePages(objects);
+    if (s.total == 0) return null;
+    return '${s.raw} 页原图 / ${s.avif} 页 AVIF';
+  } on Object {
+    return null;
   }
 }
 
