@@ -59,8 +59,13 @@ dart compile exe bin/compress_worker.dart -o compress_worker   # 产物约 7MB
 ```
 BUCKET_ENDPOINT   BUCKET_NAME   BUCKET_AK   BUCKET_SK
 BUCKET_REGION（可空）  BUCKET_PORT（可空）  BUCKET_SSL（默认 true）
-FFMPEG（默认从 PATH 找）  INTERVAL_MINUTES（默认 10）  ONESHOT=1（只跑一轮即退）
+FFMPEG（默认从 PATH 找）
+SCHEDULE_AT（默认 02:00）：每日定时，进程睡到点干活；当天已过点排到明天
+INTERVAL_MINUTES（设置后退回轮询模式，每 N 分钟一轮）
+ONESHOT=1（只跑一轮即退，适合 cron/手动测试）
 ```
+
+调度说明：**默认每天 02:00（服务器本地时）跑一轮**——进程常驻，跑完睡到下一个 02:00，无需 cron/timer；被 kill 后 `Restart=always` 拉起会重算等待。启动时立即先跑一轮（方便验证），此后按点执行。
 
 Linux 服务器用 systemd 常驻（推荐 NAS/常开机器；VPS 注意出入桶流量费）：
 
@@ -79,7 +84,7 @@ RestartSec=10
 WantedBy=multi-user.target
 ```
 
-Windows 则配任务计划程序（登录时启动）或手动 `ONESHOT=1` 跑。Worker 选目标靠索引行的 `compressed` 标记，首次运行会把全 AVIF 的历史作品补标并跳过。
+Windows 则配任务计划程序「登录时启动」即可（不用设每日触发——进程自己等到 2 点），或手动 `ONESHOT=1` 跑。Worker 选目标靠索引行的 `compressed` 标记，首次运行会把全 AVIF 的历史作品补标并跳过。
 
 ## 本机工具链状态
 

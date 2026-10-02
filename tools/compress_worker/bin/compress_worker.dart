@@ -12,7 +12,9 @@
 /// 环境变量（必填 *）：
 ///   BUCKET_ENDPOINT*  BUCKET_NAME*  BUCKET_AK*  BUCKET_SK*
 ///   BUCKET_REGION（可空）  BUCKET_PORT（可空）  BUCKET_SSL（默认 true）
-///   FFMPEG（默认从 PATH 找）  INTERVAL_MINUTES（默认 10）  ONESHOT=1 只跑一轮
+///   FFMPEG（默认从 PATH 找）
+///   SCHEDULE_AT（默认 02:00）：每日 wall-clock 调度，进程睡到点干活；
+///     设 INTERVAL_MINUTES 则退回轮询模式；ONESHOT=1 只跑一轮
 library;
 
 import 'dart:convert';
@@ -28,6 +30,7 @@ import 'package:mandu_core/bucket_config.dart';
 import 'package:mandu_core/minio_bucket_client.dart';
 import 'package:mandu_core/path_helper.dart';
 import 'package:mandu_core/avif_transcoder.dart';
+import 'package:mandu_core/schedule.dart';
 import 'package:mandu_core/works_index.dart';
 import 'package:path/path.dart' as p;
 
@@ -45,9 +48,20 @@ Future<void> main() async {
     useSSL: _env('BUCKET_SSL', defaultValue: 'true') != 'false',
   );
   final ffmpeg = _env('FFMPEG', defaultValue: 'ffmpeg');
+  final oneShot = _env('ONESHOT') == '1';
   final interval =
       int.tryParse(_env('INTERVAL_MINUTES', defaultValue: '10')) ?? 10;
-  final oneShot = _env('ONESHOT') == '1';
+  // 默认按 wall-clock 每日调度（SCHEDULE_AT，默认 02:00）；
+  // 设了 INTERVAL_MINUTES 则退回轮询，ONESHOT=1 只跑一轮。
+  final scheduleAt = oneShot ? '' : _env('SCHEDULE_AT', defaultValue: '02:00');
+  if (scheduleAt.isNotEmpty) {
+    try {
+      delayUntilDaily(scheduleAt, DateTime.now());
+    } on FormatException catch (e) {
+      stderr.writeln(e.message);
+      exit(1);
+    }
+  }
 
   try {
     config.validate();
@@ -67,7 +81,11 @@ Future<void> main() async {
   }
   stdout.writeln(
     'compress worker up: bucket=${config.bucket} endpoint=${config.endpoint} '
-    'interval=${interval}m${oneShot ? ' (oneshot)' : ''}',
+    '${oneShot
+        ? 'oneshot'
+        : scheduleAt.isNotEmpty
+        ? 'daily at $scheduleAt (local)'
+        : 'every ${interval}m'}',
   );
 
   var pass = 0;
@@ -79,7 +97,16 @@ Future<void> main() async {
       stderr.writeln('pass $pass failed: $e');
     }
     if (oneShot) break;
-    await Future<void>.delayed(Duration(minutes: interval));
+    if (scheduleAt.isNotEmpty) {
+      // 睡到下一个调度点（wall-clock；进程死了 Restart=always 会重算）
+      final delay = delayUntilDaily(scheduleAt, DateTime.now());
+      stdout.writeln(
+        'next pass at ${DateTime.now().add(delay).toString().substring(0, 16)}',
+      );
+      await Future<void>.delayed(delay);
+    } else {
+      await Future<void>.delayed(Duration(minutes: interval));
+    }
   }
   client.close();
 }
