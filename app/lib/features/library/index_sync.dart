@@ -16,6 +16,7 @@ class SyncReport {
     required this.upserted,
     required this.badLines,
     required this.byteOffset,
+    required this.byType,
     this.upToDate = false,
   });
 
@@ -25,6 +26,10 @@ class SyncReport {
 
   /// 同步后的字节水位（= 对象大小）。
   final int byteOffset;
+
+  /// 本次同步各类型行数（novel/manga），提示语按类型汇报，
+  /// 避免「漫画同步下来了但书架停在小说页签看不见」的误判。
+  final Map<String, int> byType;
 
   /// etag 未变化，未做任何事。
   final bool upToDate;
@@ -61,12 +66,17 @@ class IndexSync {
         upserted: 0,
         badLines: const [],
         byteOffset: state.byteOffset,
+        byType: const {},
         upToDate: true,
       );
     }
 
     final body = await client.getAll(LibraryPaths.worksIndex);
     final parsed = parseWorksIndex(utf8.decode(body, allowMalformed: false));
+    final byType = <String, int>{};
+    for (final e in parsed.entries) {
+      byType[e.type] = (byType[e.type] ?? 0) + 1;
+    }
     await db.transaction(() async {
       for (final e in parsed.entries) {
         await _upsertWork(e, meta.etag);
@@ -115,6 +125,7 @@ class IndexSync {
       upserted: parsed.entries.length,
       badLines: parsed.badLines,
       byteOffset: body.length,
+      byType: byType,
     );
   }
 

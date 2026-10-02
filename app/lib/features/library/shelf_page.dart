@@ -67,7 +67,23 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
   }
 
   /// 顶部页签：manga | jm | novel（jm 为应用内 JM 浏览，不占筛选类型）。
+  /// 记住上次选择（shelf.tab），避免「同步了漫画却停在小说页签」的错觉。
   String _tab = 'novel';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTab();
+  }
+
+  Future<void> _loadTab() async {
+    final t =
+        (await ref.read(settingsRepositoryProvider).get('shelf.tab'))?.trim() ??
+        '';
+    if (t.isNotEmpty && mounted && t != _tab) {
+      setState(() => _tab = t);
+    }
+  }
 
   @override
   void dispose() {
@@ -94,6 +110,7 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
   void _switchTab(String tab) {
     if (tab == _tab) return;
     setState(() => _tab = tab);
+    unawaited(ref.read(settingsRepositoryProvider).set('shelf.tab', tab));
     if (tab == 'jm') return;
     final filter = ref.read(shelfFilterProvider);
     if (filter.type != tab) {
@@ -136,9 +153,14 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
         ..invalidate(shelfStatusesProvider)
         ..invalidate(shelfAuthorsProvider);
       if (!mounted) return;
+      final typeLabel = {'manga': '漫画', 'novel': '小说'};
+      final typeSummary = report.byType.entries
+          .map((e) => '${typeLabel[e.key] ?? e.key} ${e.value}')
+          .join(' · ');
       final msg = report.upToDate
           ? '已是最新'
           : '同步 ${report.upserted} 本'
+                '${typeSummary.isEmpty ? '' : '（$typeSummary）'}'
                 '${report.badLines.isEmpty ? '' : '，跳过坏行 ${report.badLines.length}'}';
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     } on Object catch (e) {
