@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:drift/drift.dart' hide Column;
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -67,7 +68,7 @@ Future<CloudCompressReport> compressCloudMangas({
 }) async {
   final transcoder = AvifTranscoder(ffmpegPath: ffmpegPath);
   if (!await transcoder.available()) {
-    throw StateError('ffmpeg 不可用，请先在 JM 下载弹窗里填写本机 ffmpeg 路径');
+    throw StateError('ffmpeg 不可用，请先在设置页填写本机 ffmpeg 路径（仅桌面端可用）');
   }
   final rows = await (db.select(
     db.works,
@@ -271,3 +272,55 @@ String _today() {
   final d = n.day.toString().padLeft(2, '0');
   return '${n.year}-$m-$d';
 }
+
+/// 云端压缩任务状态：书架页横幅常驻展示进度/结果/重试入口，
+/// 任务在后台跑（切换页面不中断），取代一闪而过的 SnackBar。
+class CloudCompressState {
+  const CloudCompressState({
+    this.running = false,
+    this.phase = '',
+    this.report,
+    this.error,
+  });
+
+  final bool running;
+  final String phase;
+  final CloudCompressReport? report;
+
+  /// 终态错误（运行失败），与 report 互斥。
+  final String? error;
+}
+
+class _CloudCompressNotifier extends Notifier<CloudCompressState> {
+  @override
+  CloudCompressState build() => const CloudCompressState();
+
+  Future<void> start({
+    required AppDatabase db,
+    required BucketClient client,
+    required String ffmpegPath,
+  }) async {
+    if (state.running) return; // 任务串行，防重入
+    state = const CloudCompressState(running: true, phase: '准备压缩…');
+    try {
+      final report = await compressCloudMangas(
+        db: db,
+        client: client,
+        ffmpegPath: ffmpegPath,
+        onProgress: (p) => state = CloudCompressState(running: true, phase: p),
+      );
+      state = CloudCompressState(report: report);
+    } on Object catch (e) {
+      state = CloudCompressState(
+        error: e.toString().replaceFirst('StateError: ', ''),
+      );
+    }
+  }
+
+  void clear() => state = const CloudCompressState();
+}
+
+final cloudCompressProvider =
+    NotifierProvider<_CloudCompressNotifier, CloudCompressState>(
+      _CloudCompressNotifier.new,
+    );

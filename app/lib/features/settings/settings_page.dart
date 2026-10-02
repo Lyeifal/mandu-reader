@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -27,17 +29,41 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   final _ak = TextEditingController();
   final _sk = TextEditingController();
   final _localDir = TextEditingController();
+  final _ffmpeg = TextEditingController();
   bool _useSSL = true;
   bool _loaded = false;
   String? _testResult;
   bool? _bioSupported;
   bool _bioEnabled = false;
 
+  /// ffmpeg 只能用于桌面端（AVIF 压缩/下载后转码）；手机端不显示该项。
+  static bool get _desktop =>
+      Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+
   @override
   void initState() {
     super.initState();
     _loadLocalDir();
+    _loadFfmpeg();
     _loadBiometric();
+  }
+
+  Future<void> _loadFfmpeg() async {
+    if (!_desktop) return;
+    final v = await ref
+        .read(settingsRepositoryProvider)
+        .get('downloader.ffmpeg');
+    if (v != null) _ffmpeg.text = v;
+  }
+
+  Future<void> _saveFfmpeg() async {
+    await ref
+        .read(settingsRepositoryProvider)
+        .set('downloader.ffmpeg', _ffmpeg.text.trim());
+    if (mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('已保存 ffmpeg 路径')));
+    }
   }
 
   Future<void> _loadBiometric() async {
@@ -99,7 +125,16 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 
   @override
   void dispose() {
-    for (final c in [_endpoint, _port, _region, _bucket, _ak, _sk, _localDir]) {
+    for (final c in [
+      _endpoint,
+      _port,
+      _region,
+      _bucket,
+      _ak,
+      _sk,
+      _localDir,
+      _ffmpeg,
+    ]) {
       c.dispose();
     }
     super.dispose();
@@ -236,6 +271,28 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               child: const Text('保存本地目录'),
             ),
           ),
+          if (_desktop) ...[
+            const Divider(height: 32),
+            TextField(
+              controller: _ffmpeg,
+              decoration: const InputDecoration(
+                labelText: 'ffmpeg 路径（PC 端 AVIF 压缩用）',
+                helperText:
+                    '到 ffmpeg.org 下载 Windows 构建，解压后填 ffmpeg.exe 的'
+                    '绝对路径（如 D:\\tools\\ffmpeg\\bin\\ffmpeg.exe）；'
+                    '留空 = 下载/压缩都跳过转码、保留原图，之后可随时补填',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton(
+                onPressed: _saveFfmpeg,
+                child: const Text('保存 ffmpeg 路径'),
+              ),
+            ),
+          ],
           if (_bioSupported == true) ...[
             const Divider(height: 32),
             SwitchListTile(

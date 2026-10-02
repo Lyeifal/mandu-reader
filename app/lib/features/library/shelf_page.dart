@@ -162,6 +162,7 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
     final works = ref.watch(shelfWorksProvider);
     final total = ref.watch(shelfTotalProvider).value ?? 0;
     final filter = ref.watch(shelfFilterProvider);
+    final compressState = ref.watch(cloudCompressProvider);
     final type = _tab == 'jm'
         ? (filter.type.isEmpty ? 'manga' : filter.type)
         : _tab;
@@ -218,9 +219,10 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
                       child: const Text('同步'),
                     ),
                     if (ShelfPage.cloudCompressSupported)
-                      const PopupMenuItem(
+                      PopupMenuItem(
                         value: 'compress',
-                        child: Text('压缩云端漫画'),
+                        enabled: !compressState.running,
+                        child: const Text('压缩云端漫画'),
                       ),
                     const PopupMenuItem(value: 'settings', child: Text('设置')),
                   ],
@@ -280,7 +282,7 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
                   IconButton(
                     tooltip: '压缩云端漫画（把桶里未压缩的页面转 AVIF）',
                     icon: const Icon(Icons.compress),
-                    onPressed: _compressCloud,
+                    onPressed: compressState.running ? null : _compressCloud,
                   ),
                 IconButton(
                   tooltip: '设置',
@@ -312,6 +314,16 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
                       ? const JmBrowseView()
                       : Column(
                           children: [
+                            if (compressState.running ||
+                                compressState.report != null ||
+                                compressState.error != null)
+                              _CompressBanner(
+                                state: compressState,
+                                onRetry: _compressCloud,
+                                onClose: () => ref
+                                    .read(cloudCompressProvider.notifier)
+                                    .clear(),
+                              ),
                             Expanded(
                               child: works.when(
                                 loading: () => const Center(
@@ -418,8 +430,7 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
     }
   }
 
-  /// 压缩云端漫画：桶里未转 AVIF 的页面由本机 ffmpeg 兜底压缩后替换。
-  /// 手机端下载的原图上传后，等 PC 端跑这个任务即可。
+  /// 压缩云端漫画：任务进后台 notifier，进度/结果/重试由书架页横幅常驻展示。
   Future<void> _compressCloud() async {
     final client = ref.read(bucketClientProvider);
     if (client == null) {
@@ -432,35 +443,22 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
             ?.trim() ??
         '';
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('开始压缩云端漫画…（可能较久）')));
-    try {
-      final report = await compressCloudMangas(
-        db: ref.read(appDatabaseProvider),
-        client: client,
-        ffmpegPath: ffmpeg,
-        onProgress: (p) {},
-      );
-      ref.read(shelfWorksCacheProvider).clear();
-      ref.invalidate(shelfWorksProvider);
-      if (!mounted) return;
+    if (ffmpeg.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            '压缩完成：新压 ${report.compressed} 页，保留原图 ${report.keptOriginal} 页，'
-            '无需处理 ${report.allAvif} 部${report.failed > 0 ? '，失败 ${report.failed} 项' : ''}',
-          ),
-          // 失败页仍是桶里的非 AVIF 原图，重跑只会处理它们（已 AVIF 的自动跳过）
-          action: report.failed > 0
-              ? SnackBarAction(label: '重试', onPressed: _compressCloud)
-              : null,
-        ),
+        const SnackBar(content: Text('请先在设置页填写本机 ffmpeg 路径（仅桌面端可用）')),
       );
-    } on Object catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('压缩失败: $e')));
+      return;
     }
+    await ref
+        .read(cloudCompressProvider.notifier)
+        .start(
+          db: ref.read(appDatabaseProvider),
+          client: client,
+          ffmpegPath: ffmpeg,
+        );
+    // 压缩可能换了封面/索引行：刷列表
+    ref.read(shelfWorksCacheProvider).clear();
+    ref.invalidate(shelfWorksProvider);
   }
 
   void _showWorkInfo(Work work) {
@@ -1125,5 +1123,77 @@ class _WorkInfoSheet extends ConsumerWidget {
     );
     if (onTap == null) return child;
     return InkWell(onTap: onTap, child: child);
+  }
+}
+
+/// 云端压缩常驻横幅：进行中转圈+阶段文案；结束给统计；失败给原因。
+/// 失败项仍是桶里的非 AVIF 原图，「重试」重跑只处理它们（已 AVIF 自动跳过）。
+class _CompressBanner extends StatelessWidget {
+  const _CompressBanner({
+    required this.state,
+    required this.onRetry,
+    required this.onClose,
+  });
+
+  final CloudCompressState state;
+  final VoidCallback onRetry;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final report = state.report;
+    final text = state.running
+        ? '正在压缩云端漫画：${state.phase}'
+        : state.error != null
+        ? '压缩失败：${state.error}'
+        : '压缩完成：新压 ${report!.compressed} 页，保留原图 ${report.keptOriginal} 页，'
+              '无需处理 ${report.allAvif} 部'
+              '${report.failed > 0 ? '，失败 ${report.failed} 项（可重试）' : ''}';
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: theme.dividerColor),
+      ),
+      child: Row(
+        children: [
+          if (state.running)
+            const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          else
+            Icon(
+              state.error != null ? Icons.error_outline : Icons.check_circle,
+              size: 18,
+              color: state.error != null
+                  ? theme.colorScheme.error
+                  : theme.colorScheme.primary,
+            ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall,
+            ),
+          ),
+          if (!state.running) ...[
+            TextButton(onPressed: onRetry, child: const Text('重试')),
+            IconButton(
+              tooltip: '关闭',
+              icon: const Icon(Icons.close, size: 16),
+              visualDensity: VisualDensity.compact,
+              onPressed: onClose,
+            ),
+          ],
+        ],
+      ),
+    );
   }
 }
