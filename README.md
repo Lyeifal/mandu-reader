@@ -31,15 +31,26 @@ flutter run -d windows
 cd /z/app && flutter build windows --debug
 ```
 
+## 安装到手机（Android）
+
+USB 连上真机（需开开发者选项+USB 调试），构建后安装（`-r` 为覆盖安装，PIN 与桶配置保留）：
+
+```bash
+cd /z/app && flutter build apk --debug
+"$LOCALAPPDATA/Android/Sdk/platform-tools/adb" install -r app/build/app/outputs/flutter-apk/app-debug.apk
+```
+
+调试日志：`adb logcat | grep flutter`。真机已验证：Redmi K60 Pro（Android 14）。
+
 ## 本机工具链状态
 
 | 工具 | 状态 |
 |---|---|
 | Flutter SDK | `D:/Code/opt/flutter`（stable 3.47.5） |
 | Visual Studio Build Tools 2022 | ✅ 已装（含 v143 MFC/ATL；14.44 的 atls.lib 借自 14.42，见 AGENTS.md） |
-| Android SDK | ✅ 已装（`%LOCALAPPDATA%\Android\Sdk`，android-36 / build-tools 36；`flutter build apk --debug` 已验证） |
+| Android SDK | ✅ 已装（`%LOCALAPPDATA%\Android\Sdk`，android-36 / build-tools 36）；`flutter build apk --debug` 已验证，Redmi K60 Pro 真机 USB 调试已验证（`adb install -r` + `adb logcat`） |
 | JM 下载 | ✅ Dart 原生实现（`app/lib/features/jm/`），不再需要 Python/jmcomic |
-| ffmpeg | `C:\Users\akxls\Documents\ffmpeg\...\ffmpeg.exe`（AVIF 压缩/显示用） |
+| ffmpeg | 本机装在 `C:\Users\akxls\Documents\ffmpeg\...`；路径填在 设置页「ffmpeg 路径」（AVIF 压缩/下载后转码用，仅桌面端生效） |
 
 本机网络对国际出口限速，已配镜像：Gradle 走阿里源（`~/.gradle/init.d/cn-mirrors.gradle` + 工程 gradle 文件）、Flutter 引擎走腾讯镜像（`FLUTTER_STORAGE_BASE_URL`，已 setx 为用户环境变量）、sqlite3 钩子下载走 gh-proxy（pubspec 里配置）。Flutter SDK 升级后需重改 `packages/flutter_tools/gradle/settings.gradle.kts` 加镜像（详见 AGENTS.md）。
 
@@ -56,7 +67,7 @@ export PATH="/d/Code/opt/flutter/bin:$PATH"
 cd /z/app
 dart format --output=none --set-exit-if-changed .
 flutter analyze      # 零告警
-flutter test         # 全绿（42 个用例）
+flutter test         # 全绿（115 个用例）
 ```
 
 `flutter analyze` 从 D: 路径跑没有问题，只有 test/run/build 涉及钩子构建。
@@ -71,6 +82,6 @@ dart run build_runner build --delete-conflicting-outputs   # drift 代码生成
 
 ## 路线图
 
-见设计文档 §11。当前进度：**M1 桶链路 ✅ · 书架（筛选/翻页/封面） ✅ · JM 下载+AVIF 管线 ✅ · 阅读器骨架 ✅**（翻页模式/快捷跳转/自动翻页滚动）。
+见设计文档 §11。当前进度：**M1 桶链路 ✅ · 书架（筛选/翻页/封面/标签） ✅ · JM 下载+AVIF 管线 ✅ · 阅读器（漫画双模式+小说分页/进度自动保存/书签） ✅ · 进度与书签事件同步（多端合并+日志折叠） ✅ · 批量上传与任务队列（漫画/小说） ✅ · 压缩人工审阅 ✅**。
 
-后续：M3 漫画完整（双页/书签/进度）→ M4 小说完整（主题/字体/书内搜索）→ M5 书源引擎 → M6 追更与归档 → M7 打磨。
+后续：M3 剩余（双页对开/漫画书签 UI）→ M4 剩余（护眼自定义/定时切换/字体导入/书内搜索）→ M5 书源引擎 → M6 追更（增量更新/`_novel_cache` 失效）→ M7 打磨（FTS 上线/图片 LRU/打包）。
