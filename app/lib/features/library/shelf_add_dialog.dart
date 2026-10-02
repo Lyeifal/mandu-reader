@@ -127,8 +127,10 @@ class _AddWorkDialogState extends ConsumerState<AddWorkDialog> {
             parsedTitle = novel.title;
             parsedAuthor = novel.author;
             parsedMonth = novel.publishedMonth;
-          } else {
+          } else if (_type == 'novel') {
             await src.copy(p.join(dstDir.path, 'book.txt'));
+          } else {
+            fileWarning = '漫画请先把图片放入本地目录，这里仅登记元数据';
           }
         } else {
           fileWarning = '本地文件不存在，仅登记元数据';
