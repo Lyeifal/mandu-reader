@@ -92,6 +92,13 @@ class IndexSync {
         } else {
           await (db.delete(db.works)..where((t) => t.id.equals(id))).go();
           await db.customStatement('DELETE FROM works_fts WHERE id = ?', [id]);
+          // 书签与进度随作品一并清理，避免留下孤儿行
+          await (db.delete(
+            db.bookmarks,
+          )..where((t) => t.workId.equals(id))).go();
+          await (db.delete(
+            db.readingProgress,
+          )..where((t) => t.workId.equals(id))).go();
         }
       }
       await _saveWatermark(
@@ -116,6 +123,22 @@ class IndexSync {
   )..where((t) => t.name.equals(syncStateName))).getSingleOrNull();
 
   Future<void> _upsertWork(WorksIndexEntry e, String? etag) async {
+    // 本地加的标签（作品详情页）云端索引里没有——同步按 id 覆盖会抹掉，
+    // 这里做并集合并：单人场景标签只增不减，丢失比冗余代价大。
+    var tags = e.tags;
+    final existing = await (db.select(
+      db.works,
+    )..where((t) => t.id.equals(e.id))).getSingleOrNull();
+    if (existing != null) {
+      try {
+        final localTags = (jsonDecode(existing.tags) as List).map(
+          (t) => t.toString(),
+        );
+        tags = {...e.tags, ...localTags}.toList();
+      } on Object {
+        // 本地 tags 损坏时以索引值为准
+      }
+    }
     await db
         .into(db.works)
         .insertOnConflictUpdate(
@@ -127,7 +150,7 @@ class IndexSync {
             author: Value(e.author),
             series: Value(e.series),
             volume: Value(e.volume),
-            tags: Value(jsonEncode(e.tags)),
+            tags: Value(jsonEncode(tags)),
             status: Value(e.status),
             totalChars: Value(e.totalChars),
             pages: Value(e.pages),
@@ -147,7 +170,7 @@ class IndexSync {
     await db.customStatement(
       'INSERT INTO works_fts (id, title, title_jp, author, series, tags) '
       'VALUES (?,?,?,?,?,?)',
-      [e.id, e.title, e.titleJp, e.author, e.series, e.tags.join(' ')],
+      [e.id, e.title, e.titleJp, e.author, e.series, tags.join(' ')],
     );
   }
 

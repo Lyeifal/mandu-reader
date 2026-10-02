@@ -283,4 +283,62 @@ void main() {
       await tmpRoot.delete(recursive: true);
     }
   });
+
+  test('同步覆盖行时保留本地新增标签（并集合并）', () async {
+    client.seed(LibraryPaths.worksIndex, '$n1\n');
+    await sync.sync();
+
+    // 用户在作品详情页加标签（只写本地，不进索引）
+    await (db.update(db.works)..where((t) => t.id.equals('n1'))).write(
+      const WorksCompanion(tags: Value('["奇幻","慢热","本地加的"]')),
+    );
+
+    // 云端索引同一行改写（etag 变化触发全量重放）
+    final rewritten =
+        '{"id":"n1","type":"novel","title":"书名甲","author":"作者甲","status":"ongoing","tags":["奇幻","修订"]}';
+    client.seed(LibraryPaths.worksIndex, '$rewritten\n');
+    await sync.sync();
+
+    final work = await (db.select(
+      db.works,
+    )..where((t) => t.id.equals('n1'))).getSingle();
+    final tags = (jsonDecode(work.tags) as List).map((e) => e.toString());
+    expect(tags, containsAll(['奇幻', '修订', '慢热', '本地加的']));
+    // FTS 里是合并后的标签
+    expect(await ftsQuery(db, '本地加的'), ['n1']);
+  });
+
+  test('墓碑删除作品时级联清理书签与进度', () async {
+    client.seed(LibraryPaths.worksIndex, '$n1\n');
+    await sync.sync();
+
+    final now = DateTime.now();
+    await db
+        .into(db.bookmarks)
+        .insert(
+          BookmarksCompanion(
+            id: const Value('bm_1'),
+            workId: const Value('n1'),
+            loc: const Value('{"para":3}'),
+            createdAt: Value(now),
+            updatedAt: Value(now),
+          ),
+        );
+    await db
+        .into(db.readingProgress)
+        .insert(
+          ReadingProgressCompanion(
+            workId: const Value('n1'),
+            loc: const Value('{"para":3}'),
+            updatedAt: Value(now),
+          ),
+        );
+
+    client.seed(LibraryPaths.worksIndex, '{"id":"n1","deleted":true}\n');
+    await sync.sync();
+
+    expect(await db.select(db.works).get(), isEmpty);
+    expect(await db.select(db.bookmarks).get(), isEmpty);
+    expect(await db.select(db.readingProgress).get(), isEmpty);
+  });
 }
