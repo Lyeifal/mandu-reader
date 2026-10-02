@@ -17,6 +17,7 @@ import '../jm/jm_browse.dart';
 import '../providers.dart';
 import '../settings/settings_page.dart';
 import 'index_sync.dart';
+import 'events_log.dart';
 import 'shelf_add_dialog.dart';
 import 'shelf_filter_panel.dart';
 import 'shelf_query.dart';
@@ -108,6 +109,16 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
         localRootResolver: () =>
             resolveLocalRoot(ref.read(settingsRepositoryProvider)),
       ).sync();
+      // 第二步：重放用户状态事件（进度/书签跨设备合并）。
+      // 失败不阻塞同步结果——索引已入库，事件下次同步再补。
+      try {
+        await syncEventsFromBucket(
+          db: ref.read(appDatabaseProvider),
+          client: client,
+        );
+      } on Object catch (e) {
+        debugPrint('events replay failed: $e');
+      }
       // 同步可能改了库内容：清查询缓存并刷新列表/计数/筛选项
       ref.read(shelfWorksCacheProvider).clear();
       ref

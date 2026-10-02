@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:drift/drift.dart' hide Column;
 import 'package:flutter/material.dart';
@@ -11,6 +12,7 @@ import '../../data/db/app_database.dart';
 import '../bucket/path_helper.dart';
 import '../downloader/display_image.dart';
 import '../downloader/jm_pipeline.dart';
+import '../library/events_log.dart';
 import '../providers.dart';
 
 /// 阅读器：漫画沉浸式（中央点按呼出设置，两侧点按翻页）+ 小说文本滚动。
@@ -134,6 +136,11 @@ class _MangaReaderState extends ConsumerState<_MangaReader> {
   int _autoSeconds = 5; // 自动翻页/滚动间隔，0 = 关
   int _scrollPercent = 92; // 连续滚动一次跳转的距离（可视高度百分比）
 
+  // 进度持久化：进阅读器恢复上次位置；页变化落本地（防抖），退出写事件
+  bool _progressRestored = false;
+  String _devName = 'dev';
+  int _lastPersistedPage = 0;
+
   Timer? _autoTimer;
   late final PageController _page = PageController();
   final ScrollController _scroll = ScrollController();
@@ -143,6 +150,11 @@ class _MangaReaderState extends ConsumerState<_MangaReader> {
     super.initState();
     _loadPrefs();
     _scroll.addListener(_onScrollProgress);
+    _resolveDevName();
+  }
+
+  Future<void> _resolveDevName() async {
+    _devName = await resolveDeviceName(ref.read(settingsRepositoryProvider));
   }
 
   void _onScrollProgress() {
@@ -155,6 +167,38 @@ class _MangaReaderState extends ConsumerState<_MangaReader> {
         _total - 1.0,
       ),
     );
+    // 滚动模式按整页变化落本地（每帧都写 SQLite 没必要）
+    _persistProgressLocal(_scrollProgress.round() + 1);
+  }
+
+  /// 恢复上次阅读位置（首次页面就绪后调用一次）。
+  Future<void> _restoreProgress() async {
+    try {
+      final db = ref.read(appDatabaseProvider);
+      final row = await (db.select(
+        db.readingProgress,
+      )..where((t) => t.workId.equals(widget.work.id))).getSingleOrNull();
+      if (row == null || !mounted) return;
+      final loc = jsonDecode(row.loc);
+      if (loc is Map && loc['page'] is num) {
+        _jumpToPage((loc['page'] as num).toInt());
+      }
+    } on Object {
+      // 没有/坏掉的进度记录就从第一页开始
+    }
+  }
+
+  /// 页码落本地（调用方按页/整页变化节流）。
+  Future<void> _persistProgressLocal(int page) async {
+    if (page == _lastPersistedPage) return;
+    _lastPersistedPage = page;
+    try {
+      await saveProgressLocal(ref.read(appDatabaseProvider), widget.work.id, {
+        'page': page,
+      });
+    } on Object {
+      // 本地失败不阻塞阅读
+    }
   }
 
   Future<void> _loadPrefs() async {
@@ -222,6 +266,12 @@ class _MangaReaderState extends ConsumerState<_MangaReader> {
   @override
   void dispose() {
     _autoTimer?.cancel();
+    // 退出保存最终位置：本地落库 + 尽力推桶事件（失败只记日志）
+    unawaited(
+      saveProgressSafely(ref, widget.work, {
+        'page': _isPageMode ? _current + 1 : _scrollProgress.round() + 1,
+      }, dev: _devName),
+    );
     _page.dispose();
     _scroll.dispose();
     for (final c in _zoomControllers.values) {
@@ -298,6 +348,12 @@ class _MangaReaderState extends ConsumerState<_MangaReader> {
         if (sources.isEmpty) return const Center(child: Text('没有页面'));
         _total = sources.length;
         if (_current >= _total) _current = _total - 1;
+        if (!_progressRestored) {
+          _progressRestored = true;
+          WidgetsBinding.instance.addPostFrameCallback(
+            (_) => _restoreProgress(),
+          );
+        }
         final local = widget.work.localOnly;
         const fallback = SizedBox(
           height: 400,
@@ -310,7 +366,10 @@ class _MangaReaderState extends ConsumerState<_MangaReader> {
             scrollDirection: _mode == 'horizontal'
                 ? Axis.horizontal
                 : Axis.vertical,
-            onPageChanged: (i) => setState(() => _current = i),
+            onPageChanged: (i) {
+              setState(() => _current = i);
+              _persistProgressLocal(i + 1);
+            },
             itemCount: sources.length,
             itemBuilder: (context, i) => InteractiveViewer(
               child: local
@@ -843,6 +902,10 @@ class _NovelReaderState extends ConsumerState<_NovelReader> {
   double _progress = 0; // 滚动模式进度 0..1
   int _currentPage = 0;
 
+  // 进度持久化（同漫画侧：进阅读器恢复，退出落库 + 尽力推事件）
+  bool _progressRestored = false;
+  String _devName = 'dev';
+
   // 分页缓存（字号/尺寸/文本变化时重算）
   NovelPages? _pages;
   String _pagesKey = '';
@@ -867,6 +930,7 @@ class _NovelReaderState extends ConsumerState<_NovelReader> {
   void initState() {
     super.initState();
     _loadPrefs();
+    _resolveDevName();
     _scroll.addListener(() {
       if (!_scroll.hasClients) return;
       final max = _scroll.position.maxScrollExtent;
@@ -874,6 +938,27 @@ class _NovelReaderState extends ConsumerState<_NovelReader> {
         setState(() => _progress = (_scroll.offset / max).clamp(0.0, 1.0));
       }
     });
+  }
+
+  Future<void> _resolveDevName() async {
+    _devName = await resolveDeviceName(ref.read(settingsRepositoryProvider));
+  }
+
+  /// 恢复上次阅读位置（首次文本就绪后调用一次）。
+  Future<void> _restoreProgress() async {
+    try {
+      final db = ref.read(appDatabaseProvider);
+      final row = await (db.select(
+        db.readingProgress,
+      )..where((t) => t.workId.equals(widget.work.id))).getSingleOrNull();
+      if (row == null || !mounted) return;
+      final loc = jsonDecode(row.loc);
+      if (loc is Map && loc['para'] is num) {
+        _jumpToPara((loc['para'] as num).toInt());
+      }
+    } on Object {
+      // 没有/坏掉的进度记录就从开头读
+    }
   }
 
   Future<void> _loadPrefs() async {
@@ -902,6 +987,12 @@ class _NovelReaderState extends ConsumerState<_NovelReader> {
 
   @override
   void dispose() {
+    // 退出保存最终位置（本地 + 尽力推桶事件；失败只记日志）
+    unawaited(
+      saveProgressSafely(ref, widget.work, {
+        'para': _currentPara,
+      }, dev: _devName),
+    );
     _scroll.dispose();
     _page.dispose();
     super.dispose();
@@ -994,33 +1085,47 @@ class _NovelReaderState extends ConsumerState<_NovelReader> {
     final para = _currentPara;
     final db = ref.read(appDatabaseProvider);
     final now = DateTime.now();
+    final id =
+        'bm_${now.microsecondsSinceEpoch}_${Random().nextInt(1 << 16).toRadixString(36)}';
+    final note = paragraphs.isNotEmpty && para < paragraphs.length
+        ? paragraphs[para].substring(
+            0,
+            paragraphs[para].length > 24 ? 24 : paragraphs[para].length,
+          )
+        : '';
     await db
         .into(db.bookmarks)
         .insert(
           BookmarksCompanion(
-            id: Value('bm_${now.millisecondsSinceEpoch}'),
+            id: Value(id),
             workId: Value(widget.work.id),
             loc: Value('{"para":$para}'),
-            note: Value(
-              paragraphs.isNotEmpty && para < paragraphs.length
-                  ? paragraphs[para].substring(
-                      0,
-                      paragraphs[para].length > 24
-                          ? 24
-                          : paragraphs[para].length,
-                    )
-                  : '',
-            ),
+            note: Value(note),
             color: const Value('red'),
             createdAt: Value(now),
             updatedAt: Value(now),
           ),
         );
+    unawaited(
+      appendReaderEventSafely(
+        ref,
+        bookmarkEvent(
+          dev: _devName,
+          id: id,
+          work: widget.work.id,
+          loc: {'para': para},
+          note: note,
+        ),
+      ),
+    );
   }
 
   Future<void> _removeBookmark(String id) async {
     final db = ref.read(appDatabaseProvider);
     await (db.delete(db.bookmarks)..where((t) => t.id.equals(id))).go();
+    unawaited(
+      appendReaderEventSafely(ref, bookmarkDeleteEvent(dev: _devName, id: id)),
+    );
   }
 
   @override
@@ -1041,6 +1146,12 @@ class _NovelReaderState extends ConsumerState<_NovelReader> {
       data: (content) {
         final paragraphs = _parasOf(content);
         final chapters = _chaptersOf(content, chaptersFile.value);
+        if (!_progressRestored) {
+          _progressRestored = true;
+          WidgetsBinding.instance.addPostFrameCallback(
+            (_) => _restoreProgress(),
+          );
+        }
         return Scaffold(
           backgroundColor: preset.bg,
           body: LayoutBuilder(
