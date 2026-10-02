@@ -78,8 +78,14 @@ class BucketConfigController extends AsyncNotifier<BucketConfig?> {
     if (base == null) return null;
     final pin = ref.watch(authControllerProvider).value?.pin;
     if (pin == null) return base;
-    final sk = await store.readSecretKey(pin);
-    return base.copyWith(secretKey: sk ?? '');
+    try {
+      final sk = await store.readSecretKey(pin);
+      return base.copyWith(secretKey: sk ?? '');
+    } on Object {
+      // 存储损坏（非 JSON/缺字段/坏 base64）时保持可用状态：
+      // SK 为空 → 客户端不可用，由设置页重新保存修复，而不是整页报错。
+      return base;
+    }
   }
 
   Future<void> save(BucketConfig config) async {
@@ -89,9 +95,14 @@ class BucketConfigController extends AsyncNotifier<BucketConfig?> {
     }
     final store = ref.read(credentialStoreProvider);
     await store.saveBucketConfig(config);
-    if (config.secretKey.isNotEmpty) {
-      await store.saveSecretKey(config.secretKey, pin);
+    var sk = config.secretKey;
+    if (sk.isNotEmpty) {
+      await store.saveSecretKey(sk, pin);
+    } else {
+      // 表单「留空 = 不修改」：状态里必须合并回已存储的 SK，
+      // 否则保存一次设置后 bucketClientProvider 因 secretKey 为空而失效。
+      sk = await store.readSecretKey(pin) ?? '';
     }
-    state = AsyncData(config);
+    state = AsyncData(config.copyWith(secretKey: sk));
   }
 }
