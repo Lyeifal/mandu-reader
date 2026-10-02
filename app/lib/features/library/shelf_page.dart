@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:drift/drift.dart' hide Column;
@@ -36,6 +37,12 @@ class ShelfPage extends ConsumerStatefulWidget {
   const ShelfPage({super.key});
 
   static const path = '/shelf';
+
+  /// 云端压缩需要本机 ffmpeg 可执行文件——Android 无法执行外部二进制
+  /// （SELinux），按钮只在桌面端显示（设计文档 §14.2：手机下载保留原图，
+  /// 由 PC 端兜底压缩）。
+  static bool get cloudCompressSupported =>
+      Platform.isWindows || Platform.isLinux || Platform.isMacOS;
 
   @override
   ConsumerState<ShelfPage> createState() => _ShelfPageState();
@@ -210,10 +217,11 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
                       enabled: !_syncing,
                       child: const Text('同步'),
                     ),
-                    const PopupMenuItem(
-                      value: 'compress',
-                      child: Text('压缩云端漫画'),
-                    ),
+                    if (ShelfPage.cloudCompressSupported)
+                      const PopupMenuItem(
+                        value: 'compress',
+                        child: Text('压缩云端漫画'),
+                      ),
                     const PopupMenuItem(value: 'settings', child: Text('设置')),
                   ],
                 ),
@@ -268,11 +276,12 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
                       : const Icon(Icons.sync),
                   onPressed: _syncing ? null : _sync,
                 ),
-                IconButton(
-                  tooltip: '压缩云端漫画（把桶里未压缩的页面转 AVIF）',
-                  icon: const Icon(Icons.compress),
-                  onPressed: _compressCloud,
-                ),
+                if (ShelfPage.cloudCompressSupported)
+                  IconButton(
+                    tooltip: '压缩云端漫画（把桶里未压缩的页面转 AVIF）',
+                    icon: const Icon(Icons.compress),
+                    onPressed: _compressCloud,
+                  ),
                 IconButton(
                   tooltip: '设置',
                   icon: const Icon(Icons.settings),
