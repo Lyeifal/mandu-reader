@@ -201,7 +201,7 @@ Future<CloudCompressReport> compressCloudMangas({
 
       if (touched) {
         final stillRaw = pending.length - workCompressed;
-        await _rewriteIndex(
+        await rewriteWorkIndex(
           client,
           work,
           pages.length,
@@ -220,7 +220,8 @@ Future<CloudCompressReport> compressCloudMangas({
 }
 
 /// 覆写某 id 的索引行（同删除云端的墓碑式重写：滤旧行 + 追加新行）。
-Future<void> _rewriteIndex(
+/// 云端压缩与人工审阅共用。
+Future<void> rewriteWorkIndex(
   BucketClient client,
   Work work,
   int pageCount,

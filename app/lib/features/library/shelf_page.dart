@@ -9,11 +9,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../data/db/app_database.dart';
+import '../downloader/cloud_compress.dart';
+import '../downloader/compress_review.dart';
 import '../downloader/display_image.dart';
 import '../downloader/jm_download_dialog.dart';
 import '../downloader/jm_pipeline.dart';
 import '../downloader/jm_tasks.dart';
-import '../downloader/cloud_compress.dart';
 import '../jm/jm_browse.dart';
 import '../providers.dart';
 import '../settings/settings_page.dart';
@@ -224,6 +225,11 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
                         enabled: !compressState.running,
                         child: const Text('压缩云端漫画'),
                       ),
+                    if (ShelfPage.cloudCompressSupported)
+                      const PopupMenuItem(
+                        value: 'review',
+                        child: Text('审阅压缩（逐页决定）'),
+                      ),
                     const PopupMenuItem(value: 'settings', child: Text('设置')),
                   ],
                 ),
@@ -283,6 +289,16 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
                     tooltip: '压缩云端漫画（把桶里未压缩的页面转 AVIF）',
                     icon: const Icon(Icons.compress),
                     onPressed: compressState.running ? null : _compressCloud,
+                  ),
+                if (ShelfPage.cloudCompressSupported)
+                  IconButton(
+                    tooltip: '审阅压缩：逐页对比原图与 AVIF，人工决定保留哪张',
+                    icon: const Icon(Icons.compare_outlined),
+                    onPressed: () => showDialog<void>(
+                      context: context,
+                      barrierDismissible: false,
+                      builder: (context) => const CompressReviewDialog(),
+                    ),
                   ),
                 IconButton(
                   tooltip: '设置',
@@ -425,6 +441,12 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
         if (!_syncing) _sync();
       case 'compress':
         _compressCloud();
+      case 'review':
+        showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const CompressReviewDialog(),
+        );
       case 'settings':
         context.go(SettingsPage.path);
     }
