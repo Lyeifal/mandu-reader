@@ -32,6 +32,10 @@ class MinioBucketClient implements BucketClient {
   final http.Client _http;
   late final Minio _minio;
 
+  /// 释放内部 http.Client。provider 在配置变化/销毁时调用，
+  /// 避免每次重建客户端泄漏连接。
+  void close() => _http.close();
+
   static const _maxRetries = 3;
 
   @override
@@ -76,7 +80,11 @@ class MinioBucketClient implements BucketClient {
       String? indexEtag;
       if (chunks.isNotEmpty && chunks.first.objects.isNotEmpty) {
         final first = chunks.first.objects.first;
-        indexEtag = (first as dynamic).eTag as String?;
+        // 前缀下第一个对象不一定是 works.jsonl（可能有 tmp/bak 文件），按 key 认准
+        final firstKey = (first as dynamic).key as String?;
+        if (firstKey == LibraryPaths.worksIndex) {
+          indexEtag = (first as dynamic).eTag as String?;
+        }
       }
       return ConnectivityResult(
         ok: true,
@@ -115,7 +123,9 @@ class MinioBucketClient implements BucketClient {
       final contentRange = resp.headers['content-range'];
       if (contentRange != null) {
         final m = RegExp(r'/(\d+)\s*$').firstMatch(contentRange);
-        if (m != null) size = int.parse(m.group(1)!);
+        // 兼容实现可能给 bytes 0-0/* 或畸形头，解析不出来就退回 contentLength
+        final total = m == null ? null : int.tryParse(m.group(1)!);
+        if (total != null) size = total;
       }
       var etag = resp.headers['etag'];
       if (etag != null) {
@@ -174,11 +184,14 @@ class MinioBucketClient implements BucketClient {
   @override
   Future<void> put(String key, Uint8List data) async {
     try {
-      await _minio.putObject(
-        config.bucket,
-        key,
-        Stream<Uint8List>.value(data),
-        size: data.length,
+      // PUT 幂等（同字节覆盖），网络抖动可安全重试，与 delete 对齐
+      await _withRetry(
+        () => _minio.putObject(
+          config.bucket,
+          key,
+          Stream<Uint8List>.value(data),
+          size: data.length,
+        ),
       );
     } on MinioError catch (e) {
       throw _mapError('put $key', e);
