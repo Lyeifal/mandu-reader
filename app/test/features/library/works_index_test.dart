@@ -27,6 +27,31 @@ not-json
       expect(e.status, 'ongoing');
       expect(e.origin, 'manual');
       expect(e.localOnly, isFalse);
+      // 汉化字段缺省：有中文 + 中质量
+      expect(e.hasZh, isTrue);
+      expect(e.zhQuality, 'medium');
+      expect(e.publishedAt, isNull);
+      expect(e.completedAt, isNull);
+    });
+
+    test('汉化与发布时间字段解析，日期归一化到月', () {
+      final r = parseWorksIndex(
+        '{"id":"n1","type":"manga","title":"t","has_zh":false,'
+        '"zh_quality":"low","published_at":"2024-03-15",'
+        '"completed_at":"2025-12"}',
+      );
+      final e = r.entries.single;
+      expect(e.hasZh, isFalse);
+      expect(e.zhQuality, 'low');
+      expect(e.publishedAt, '2024-03');
+      expect(e.completedAt, '2025-12');
+    });
+
+    test('非法月份日期置空', () {
+      final r = parseWorksIndex(
+        '{"id":"n1","type":"novel","title":"t","published_at":"2024-13"}',
+      );
+      expect(r.entries.single.publishedAt, isNull);
     });
 
     test('CRLF 文件兼容', () {

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:drift/drift.dart' hide Column, isNotNull;
 import 'package:drift/native.dart';
@@ -8,6 +9,7 @@ import 'package:mandu_reader/data/db/app_database.dart';
 import 'package:mandu_reader/features/bucket/bucket_client.dart';
 import 'package:mandu_reader/features/bucket/path_helper.dart';
 import 'package:mandu_reader/features/library/index_sync.dart';
+import 'package:path/path.dart' as p;
 
 /// 内存假桶：key → bytes + 单调递增 etag，模拟 S3 对象语义。
 class FakeBucketClient implements BucketClient {
@@ -58,6 +60,12 @@ class FakeBucketClient implements BucketClient {
   @override
   Future<List<String>> listKeys(String prefix, {int max = 20}) async =>
       objects.keys.where((k) => k.startsWith(prefix)).take(max).toList();
+
+  @override
+  Future<void> delete(String key) async {
+    objects.remove(key);
+    etags.remove(key);
+  }
 }
 
 Future<List<String>> ftsQuery(AppDatabase db, String term) async {
@@ -182,16 +190,97 @@ void main() {
     expect(local!.localOnly, isTrue);
   });
 
-  test('文件变短（合并语义）：不崩溃，删除需 tombstone（设计 M7）', () async {
+  test('墓碑行：删除其他设备已删除的作品（含 FTS 清理）', () async {
     client.seed(LibraryPaths.worksIndex, '$n1\n$n2\n');
     await sync.sync();
+    expect(await ftsQuery(db, '书名乙'), ['n2']);
 
-    client.seed(LibraryPaths.worksIndex, '$n1\n'); // 变短
+    // 模拟另一端删除云端：旧行移除 + 追加墓碑
+    client.seed(LibraryPaths.worksIndex, '$n1\n{"id":"n2","deleted":true}\n');
 
     final report = await sync.sync();
     expect(report.upToDate, isFalse);
-    // 合并不删除：n2 仍在（works.jsonl 删除语义未定义，M7 处理）
     final works = await db.select(db.works).get();
-    expect(works.length, 2);
+    expect(works.length, 1);
+    expect(works.single.id, 'n1');
+    expect(await ftsQuery(db, '书名乙'), isEmpty);
+  });
+
+  test('墓碑行不算坏行，且排在作品行之后也能正确删除', () async {
+    client.seed(LibraryPaths.worksIndex, '{"id":"n1","deleted":true}\n$n1\n');
+    final report = await sync.sync();
+    expect(report.badLines, isEmpty);
+    // 先按行序 upsert 再统一应用墓碑：最终 n1 被删除
+    expect(await db.select(db.works).get(), isEmpty);
+  });
+
+  test('墓碑 + 本机有副本：转为仅本设备，记录与文件都保留', () async {
+    final tmpRoot = await Directory.systemTemp.createTemp('mandu_tomb');
+    try {
+      client.seed(LibraryPaths.worksIndex, '$n1\n$n2\n');
+      sync = IndexSync(
+        db: db,
+        client: client,
+        localRootResolver: () async => tmpRoot.path,
+      );
+      await sync.sync();
+
+      // 本机存有 n2 的副本
+      final dir = Directory(p.join(tmpRoot.path, 'n2'))
+        ..createSync(recursive: true);
+      File(p.join(dir.path, 'book.txt')).writeAsStringSync('正文');
+
+      client.seed(LibraryPaths.worksIndex, '$n1\n{"id":"n2","deleted":true}\n');
+      await sync.sync();
+
+      final works = await db.select(db.works).get();
+      expect(works.map((w) => w.id), containsAll(['n1', 'n2']));
+      final kept = works.firstWhere((w) => w.id == 'n2');
+      expect(kept.localOnly, isTrue);
+      expect(
+        await File(p.join(tmpRoot.path, 'n2', 'book.txt')).exists(),
+        isTrue,
+      );
+    } finally {
+      await tmpRoot.delete(recursive: true);
+    }
+  });
+
+  test('墓碑 + 本机只有小说阅读缓存：缓存转正为本地目录', () async {
+    final tmpRoot = await Directory.systemTemp.createTemp('mandu_tomb');
+    try {
+      client.seed(LibraryPaths.worksIndex, '$n1\n');
+      sync = IndexSync(
+        db: db,
+        client: client,
+        localRootResolver: () async => tmpRoot.path,
+      );
+      await sync.sync();
+
+      // 云端小说的阅读缓存（未转正的副本）
+      final cache = Directory(p.join(tmpRoot.path, '_novel_cache', 'n1'))
+        ..createSync(recursive: true);
+      File(p.join(cache.path, 'book.txt')).writeAsStringSync('正文');
+
+      client.seed(LibraryPaths.worksIndex, '$n1\n{"id":"n1","deleted":true}\n');
+      await sync.sync();
+
+      final kept = await (db.select(
+        db.works,
+      )..where((t) => t.id.equals('n1'))).getSingleOrNull();
+      expect(kept, isNotNull);
+      expect(kept!.localOnly, isTrue);
+      // 缓存已移动到正式本地目录
+      expect(
+        await File(p.join(tmpRoot.path, 'n1', 'book.txt')).exists(),
+        isTrue,
+      );
+      expect(
+        await Directory(p.join(tmpRoot.path, '_novel_cache', 'n1')).exists(),
+        isFalse,
+      );
+    } finally {
+      await tmpRoot.delete(recursive: true);
+    }
   });
 }

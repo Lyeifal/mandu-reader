@@ -19,6 +19,10 @@ class WorksIndexEntry {
     this.cover,
     this.origin = 'manual',
     this.localOnly = false,
+    this.hasZh = true,
+    this.zhQuality = 'medium',
+    this.publishedAt,
+    this.completedAt,
   });
 
   final String id;
@@ -36,6 +40,18 @@ class WorksIndexEntry {
   final String? cover;
   final String origin;
   final bool localOnly;
+
+  /// 是否有中文；缺省按有处理（汉化质量筛选的前提）。
+  final bool hasZh;
+
+  /// 汉化质量：high | medium | low（默认 medium）。
+  final String zhQuality;
+
+  /// 发布时间（YYYY-MM，精确到月）。
+  final String? publishedAt;
+
+  /// 完结时间（YYYY-MM，精确到月）。
+  final String? completedAt;
 
   factory WorksIndexEntry.fromJson(Map<String, dynamic> json) {
     final id = json['id'];
@@ -68,8 +84,19 @@ class WorksIndexEntry {
       cover: json['cover'] as String?,
       origin: (json['origin'] ?? 'manual') as String,
       localOnly: (json['local_only'] as bool?) ?? false,
+      hasZh: (json['has_zh'] as bool?) ?? true,
+      zhQuality: (json['zh_quality'] as String?) ?? 'medium',
+      publishedAt: _month(json['published_at'] as String?),
+      completedAt: _month(json['completed_at'] as String?),
     );
   }
+}
+
+/// 归一化到 YYYY-MM：时间筛选精确到月，支持上游给完整日期。
+String? _month(String? raw) {
+  if (raw == null) return null;
+  final m = RegExp(r'^\d{4}-(0[1-9]|1[0-2])').stringMatch(raw);
+  return m;
 }
 
 /// 坏行记录（设计文档 §5.2：跳坏行并记录）。
@@ -85,27 +112,40 @@ class BadLine {
 }
 
 class WorksIndexParseResult {
-  const WorksIndexParseResult(this.entries, this.badLines);
+  const WorksIndexParseResult(
+    this.entries,
+    this.badLines, [
+    this.tombstoneIds = const [],
+  ]);
 
   final List<WorksIndexEntry> entries;
   final List<BadLine> badLines;
+
+  /// 被删除作品的 id（墓碑行 `{"id":..., "deleted":true}`）：
+  /// 同步端应删除本地对应记录，而不是当作坏行跳过。
+  final List<String> tombstoneIds;
 }
 
 /// 逐行解析 works.jsonl：空行跳过，坏行收集，不抛异常（§5.2）。
 WorksIndexParseResult parseWorksIndex(String content) {
   final entries = <WorksIndexEntry>[];
   final badLines = <BadLine>[];
+  final tombstones = <String>[];
   final lines = content.split('\n');
   for (var i = 0; i < lines.length; i++) {
     final raw = lines[i];
     if (raw.trim().isEmpty) continue;
     try {
-      entries.add(
-        WorksIndexEntry.fromJson(jsonDecode(raw) as Map<String, dynamic>),
-      );
+      final map = jsonDecode(raw) as Map<String, dynamic>;
+      final id = map['id'];
+      if (id is String && id.isNotEmpty && map['deleted'] == true) {
+        tombstones.add(id);
+        continue;
+      }
+      entries.add(WorksIndexEntry.fromJson(map));
     } on Object catch (e) {
       badLines.add(BadLine(i + 1, raw, e.toString()));
     }
   }
-  return WorksIndexParseResult(entries, badLines);
+  return WorksIndexParseResult(entries, badLines, tombstones);
 }

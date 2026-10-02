@@ -161,6 +161,53 @@ class $WorksTable extends Works with TableInfo<$WorksTable, Work> {
     ),
     defaultValue: const Constant(false),
   );
+  static const VerificationMeta _hasZhMeta = const VerificationMeta('hasZh');
+  @override
+  late final GeneratedColumn<bool> hasZh = GeneratedColumn<bool>(
+    'has_zh',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("has_zh" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
+  static const VerificationMeta _zhQualityMeta = const VerificationMeta(
+    'zhQuality',
+  );
+  @override
+  late final GeneratedColumn<String> zhQuality = GeneratedColumn<String>(
+    'zh_quality',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('medium'),
+  );
+  static const VerificationMeta _publishedAtMeta = const VerificationMeta(
+    'publishedAt',
+  );
+  @override
+  late final GeneratedColumn<String> publishedAt = GeneratedColumn<String>(
+    'published_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _completedAtMeta = const VerificationMeta(
+    'completedAt',
+  );
+  @override
+  late final GeneratedColumn<String> completedAt = GeneratedColumn<String>(
+    'completed_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _etagMeta = const VerificationMeta('etag');
   @override
   late final GeneratedColumn<String> etag = GeneratedColumn<String>(
@@ -198,6 +245,10 @@ class $WorksTable extends Works with TableInfo<$WorksTable, Work> {
     cover,
     origin,
     localOnly,
+    hasZh,
+    zhQuality,
+    publishedAt,
+    completedAt,
     etag,
     syncedAt,
   ];
@@ -309,6 +360,36 @@ class $WorksTable extends Works with TableInfo<$WorksTable, Work> {
         localOnly.isAcceptableOrUnknown(data['local_only']!, _localOnlyMeta),
       );
     }
+    if (data.containsKey('has_zh')) {
+      context.handle(
+        _hasZhMeta,
+        hasZh.isAcceptableOrUnknown(data['has_zh']!, _hasZhMeta),
+      );
+    }
+    if (data.containsKey('zh_quality')) {
+      context.handle(
+        _zhQualityMeta,
+        zhQuality.isAcceptableOrUnknown(data['zh_quality']!, _zhQualityMeta),
+      );
+    }
+    if (data.containsKey('published_at')) {
+      context.handle(
+        _publishedAtMeta,
+        publishedAt.isAcceptableOrUnknown(
+          data['published_at']!,
+          _publishedAtMeta,
+        ),
+      );
+    }
+    if (data.containsKey('completed_at')) {
+      context.handle(
+        _completedAtMeta,
+        completedAt.isAcceptableOrUnknown(
+          data['completed_at']!,
+          _completedAtMeta,
+        ),
+      );
+    }
     if (data.containsKey('etag')) {
       context.handle(
         _etagMeta,
@@ -390,6 +471,22 @@ class $WorksTable extends Works with TableInfo<$WorksTable, Work> {
         DriftSqlType.bool,
         data['${effectivePrefix}local_only'],
       )!,
+      hasZh: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}has_zh'],
+      )!,
+      zhQuality: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}zh_quality'],
+      )!,
+      publishedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}published_at'],
+      ),
+      completedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}completed_at'],
+      ),
       etag: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}etag'],
@@ -424,6 +521,18 @@ class Work extends DataClass implements Insertable<Work> {
   final String origin;
   final bool localOnly;
 
+  /// 是否有中文版本（未设置的作品按"有"处理，见设计文档 §4.1）。
+  final bool hasZh;
+
+  /// 汉化质量：high | medium | low（默认 medium）。
+  final String zhQuality;
+
+  /// 发布时间，精确到月（YYYY-MM）。
+  final String? publishedAt;
+
+  /// 完结时间，精确到月（YYYY-MM）。
+  final String? completedAt;
+
   /// 同步时对象 etag，用于增量跳过。
   final String? etag;
   final DateTime? syncedAt;
@@ -443,6 +552,10 @@ class Work extends DataClass implements Insertable<Work> {
     this.cover,
     required this.origin,
     required this.localOnly,
+    required this.hasZh,
+    required this.zhQuality,
+    this.publishedAt,
+    this.completedAt,
     this.etag,
     this.syncedAt,
   });
@@ -474,6 +587,14 @@ class Work extends DataClass implements Insertable<Work> {
     }
     map['origin'] = Variable<String>(origin);
     map['local_only'] = Variable<bool>(localOnly);
+    map['has_zh'] = Variable<bool>(hasZh);
+    map['zh_quality'] = Variable<String>(zhQuality);
+    if (!nullToAbsent || publishedAt != null) {
+      map['published_at'] = Variable<String>(publishedAt);
+    }
+    if (!nullToAbsent || completedAt != null) {
+      map['completed_at'] = Variable<String>(completedAt);
+    }
     if (!nullToAbsent || etag != null) {
       map['etag'] = Variable<String>(etag);
     }
@@ -510,6 +631,14 @@ class Work extends DataClass implements Insertable<Work> {
           : Value(cover),
       origin: Value(origin),
       localOnly: Value(localOnly),
+      hasZh: Value(hasZh),
+      zhQuality: Value(zhQuality),
+      publishedAt: publishedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(publishedAt),
+      completedAt: completedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(completedAt),
       etag: etag == null && nullToAbsent ? const Value.absent() : Value(etag),
       syncedAt: syncedAt == null && nullToAbsent
           ? const Value.absent()
@@ -538,6 +667,10 @@ class Work extends DataClass implements Insertable<Work> {
       cover: serializer.fromJson<String?>(json['cover']),
       origin: serializer.fromJson<String>(json['origin']),
       localOnly: serializer.fromJson<bool>(json['localOnly']),
+      hasZh: serializer.fromJson<bool>(json['hasZh']),
+      zhQuality: serializer.fromJson<String>(json['zhQuality']),
+      publishedAt: serializer.fromJson<String?>(json['publishedAt']),
+      completedAt: serializer.fromJson<String?>(json['completedAt']),
       etag: serializer.fromJson<String?>(json['etag']),
       syncedAt: serializer.fromJson<DateTime?>(json['syncedAt']),
     );
@@ -561,6 +694,10 @@ class Work extends DataClass implements Insertable<Work> {
       'cover': serializer.toJson<String?>(cover),
       'origin': serializer.toJson<String>(origin),
       'localOnly': serializer.toJson<bool>(localOnly),
+      'hasZh': serializer.toJson<bool>(hasZh),
+      'zhQuality': serializer.toJson<String>(zhQuality),
+      'publishedAt': serializer.toJson<String?>(publishedAt),
+      'completedAt': serializer.toJson<String?>(completedAt),
       'etag': serializer.toJson<String?>(etag),
       'syncedAt': serializer.toJson<DateTime?>(syncedAt),
     };
@@ -582,6 +719,10 @@ class Work extends DataClass implements Insertable<Work> {
     Value<String?> cover = const Value.absent(),
     String? origin,
     bool? localOnly,
+    bool? hasZh,
+    String? zhQuality,
+    Value<String?> publishedAt = const Value.absent(),
+    Value<String?> completedAt = const Value.absent(),
     Value<String?> etag = const Value.absent(),
     Value<DateTime?> syncedAt = const Value.absent(),
   }) => Work(
@@ -600,6 +741,10 @@ class Work extends DataClass implements Insertable<Work> {
     cover: cover.present ? cover.value : this.cover,
     origin: origin ?? this.origin,
     localOnly: localOnly ?? this.localOnly,
+    hasZh: hasZh ?? this.hasZh,
+    zhQuality: zhQuality ?? this.zhQuality,
+    publishedAt: publishedAt.present ? publishedAt.value : this.publishedAt,
+    completedAt: completedAt.present ? completedAt.value : this.completedAt,
     etag: etag.present ? etag.value : this.etag,
     syncedAt: syncedAt.present ? syncedAt.value : this.syncedAt,
   );
@@ -624,6 +769,14 @@ class Work extends DataClass implements Insertable<Work> {
       cover: data.cover.present ? data.cover.value : this.cover,
       origin: data.origin.present ? data.origin.value : this.origin,
       localOnly: data.localOnly.present ? data.localOnly.value : this.localOnly,
+      hasZh: data.hasZh.present ? data.hasZh.value : this.hasZh,
+      zhQuality: data.zhQuality.present ? data.zhQuality.value : this.zhQuality,
+      publishedAt: data.publishedAt.present
+          ? data.publishedAt.value
+          : this.publishedAt,
+      completedAt: data.completedAt.present
+          ? data.completedAt.value
+          : this.completedAt,
       etag: data.etag.present ? data.etag.value : this.etag,
       syncedAt: data.syncedAt.present ? data.syncedAt.value : this.syncedAt,
     );
@@ -647,6 +800,10 @@ class Work extends DataClass implements Insertable<Work> {
           ..write('cover: $cover, ')
           ..write('origin: $origin, ')
           ..write('localOnly: $localOnly, ')
+          ..write('hasZh: $hasZh, ')
+          ..write('zhQuality: $zhQuality, ')
+          ..write('publishedAt: $publishedAt, ')
+          ..write('completedAt: $completedAt, ')
           ..write('etag: $etag, ')
           ..write('syncedAt: $syncedAt')
           ..write(')'))
@@ -654,7 +811,7 @@ class Work extends DataClass implements Insertable<Work> {
   }
 
   @override
-  int get hashCode => Object.hash(
+  int get hashCode => Object.hashAll([
     id,
     type,
     title,
@@ -670,9 +827,13 @@ class Work extends DataClass implements Insertable<Work> {
     cover,
     origin,
     localOnly,
+    hasZh,
+    zhQuality,
+    publishedAt,
+    completedAt,
     etag,
     syncedAt,
-  );
+  ]);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -692,6 +853,10 @@ class Work extends DataClass implements Insertable<Work> {
           other.cover == this.cover &&
           other.origin == this.origin &&
           other.localOnly == this.localOnly &&
+          other.hasZh == this.hasZh &&
+          other.zhQuality == this.zhQuality &&
+          other.publishedAt == this.publishedAt &&
+          other.completedAt == this.completedAt &&
           other.etag == this.etag &&
           other.syncedAt == this.syncedAt);
 }
@@ -712,6 +877,10 @@ class WorksCompanion extends UpdateCompanion<Work> {
   final Value<String?> cover;
   final Value<String> origin;
   final Value<bool> localOnly;
+  final Value<bool> hasZh;
+  final Value<String> zhQuality;
+  final Value<String?> publishedAt;
+  final Value<String?> completedAt;
   final Value<String?> etag;
   final Value<DateTime?> syncedAt;
   final Value<int> rowid;
@@ -731,6 +900,10 @@ class WorksCompanion extends UpdateCompanion<Work> {
     this.cover = const Value.absent(),
     this.origin = const Value.absent(),
     this.localOnly = const Value.absent(),
+    this.hasZh = const Value.absent(),
+    this.zhQuality = const Value.absent(),
+    this.publishedAt = const Value.absent(),
+    this.completedAt = const Value.absent(),
     this.etag = const Value.absent(),
     this.syncedAt = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -751,6 +924,10 @@ class WorksCompanion extends UpdateCompanion<Work> {
     this.cover = const Value.absent(),
     this.origin = const Value.absent(),
     this.localOnly = const Value.absent(),
+    this.hasZh = const Value.absent(),
+    this.zhQuality = const Value.absent(),
+    this.publishedAt = const Value.absent(),
+    this.completedAt = const Value.absent(),
     this.etag = const Value.absent(),
     this.syncedAt = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -773,6 +950,10 @@ class WorksCompanion extends UpdateCompanion<Work> {
     Expression<String>? cover,
     Expression<String>? origin,
     Expression<bool>? localOnly,
+    Expression<bool>? hasZh,
+    Expression<String>? zhQuality,
+    Expression<String>? publishedAt,
+    Expression<String>? completedAt,
     Expression<String>? etag,
     Expression<DateTime>? syncedAt,
     Expression<int>? rowid,
@@ -793,6 +974,10 @@ class WorksCompanion extends UpdateCompanion<Work> {
       if (cover != null) 'cover': cover,
       if (origin != null) 'origin': origin,
       if (localOnly != null) 'local_only': localOnly,
+      if (hasZh != null) 'has_zh': hasZh,
+      if (zhQuality != null) 'zh_quality': zhQuality,
+      if (publishedAt != null) 'published_at': publishedAt,
+      if (completedAt != null) 'completed_at': completedAt,
       if (etag != null) 'etag': etag,
       if (syncedAt != null) 'synced_at': syncedAt,
       if (rowid != null) 'rowid': rowid,
@@ -815,6 +1000,10 @@ class WorksCompanion extends UpdateCompanion<Work> {
     Value<String?>? cover,
     Value<String>? origin,
     Value<bool>? localOnly,
+    Value<bool>? hasZh,
+    Value<String>? zhQuality,
+    Value<String?>? publishedAt,
+    Value<String?>? completedAt,
     Value<String?>? etag,
     Value<DateTime?>? syncedAt,
     Value<int>? rowid,
@@ -835,6 +1024,10 @@ class WorksCompanion extends UpdateCompanion<Work> {
       cover: cover ?? this.cover,
       origin: origin ?? this.origin,
       localOnly: localOnly ?? this.localOnly,
+      hasZh: hasZh ?? this.hasZh,
+      zhQuality: zhQuality ?? this.zhQuality,
+      publishedAt: publishedAt ?? this.publishedAt,
+      completedAt: completedAt ?? this.completedAt,
       etag: etag ?? this.etag,
       syncedAt: syncedAt ?? this.syncedAt,
       rowid: rowid ?? this.rowid,
@@ -889,6 +1082,18 @@ class WorksCompanion extends UpdateCompanion<Work> {
     if (localOnly.present) {
       map['local_only'] = Variable<bool>(localOnly.value);
     }
+    if (hasZh.present) {
+      map['has_zh'] = Variable<bool>(hasZh.value);
+    }
+    if (zhQuality.present) {
+      map['zh_quality'] = Variable<String>(zhQuality.value);
+    }
+    if (publishedAt.present) {
+      map['published_at'] = Variable<String>(publishedAt.value);
+    }
+    if (completedAt.present) {
+      map['completed_at'] = Variable<String>(completedAt.value);
+    }
     if (etag.present) {
       map['etag'] = Variable<String>(etag.value);
     }
@@ -919,6 +1124,10 @@ class WorksCompanion extends UpdateCompanion<Work> {
           ..write('cover: $cover, ')
           ..write('origin: $origin, ')
           ..write('localOnly: $localOnly, ')
+          ..write('hasZh: $hasZh, ')
+          ..write('zhQuality: $zhQuality, ')
+          ..write('publishedAt: $publishedAt, ')
+          ..write('completedAt: $completedAt, ')
           ..write('etag: $etag, ')
           ..write('syncedAt: $syncedAt, ')
           ..write('rowid: $rowid')
@@ -2386,6 +2595,10 @@ typedef $$WorksTableCreateCompanionBuilder = WorksCompanion Function({
   Value<String?> cover,
   Value<String> origin,
   Value<bool> localOnly,
+  Value<bool> hasZh,
+  Value<String> zhQuality,
+  Value<String?> publishedAt,
+  Value<String?> completedAt,
   Value<String?> etag,
   Value<DateTime?> syncedAt,
   Value<int> rowid,
@@ -2406,6 +2619,10 @@ typedef $$WorksTableUpdateCompanionBuilder = WorksCompanion Function({
   Value<String?> cover,
   Value<String> origin,
   Value<bool> localOnly,
+  Value<bool> hasZh,
+  Value<String> zhQuality,
+  Value<String?> publishedAt,
+  Value<String?> completedAt,
   Value<String?> etag,
   Value<DateTime?> syncedAt,
   Value<int> rowid,
@@ -2491,6 +2708,26 @@ class $$WorksTableFilterComposer extends Composer<_$AppDatabase, $WorksTable> {
 
   ColumnFilters<bool> get localOnly => $composableBuilder(
     column: $table.localOnly,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get hasZh => $composableBuilder(
+    column: $table.hasZh,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get zhQuality => $composableBuilder(
+    column: $table.zhQuality,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get publishedAt => $composableBuilder(
+    column: $table.publishedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get completedAt => $composableBuilder(
+    column: $table.completedAt,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -2589,6 +2826,26 @@ class $$WorksTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<bool> get hasZh => $composableBuilder(
+    column: $table.hasZh,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get zhQuality => $composableBuilder(
+    column: $table.zhQuality,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get publishedAt => $composableBuilder(
+    column: $table.publishedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get completedAt => $composableBuilder(
+    column: $table.completedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get etag => $composableBuilder(
     column: $table.etag,
     builder: (column) => ColumnOrderings(column),
@@ -2658,6 +2915,22 @@ class $$WorksTableAnnotationComposer
   GeneratedColumn<bool> get localOnly =>
       $composableBuilder(column: $table.localOnly, builder: (column) => column);
 
+  GeneratedColumn<bool> get hasZh =>
+      $composableBuilder(column: $table.hasZh, builder: (column) => column);
+
+  GeneratedColumn<String> get zhQuality =>
+      $composableBuilder(column: $table.zhQuality, builder: (column) => column);
+
+  GeneratedColumn<String> get publishedAt => $composableBuilder(
+    column: $table.publishedAt,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get completedAt => $composableBuilder(
+    column: $table.completedAt,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<String> get etag =>
       $composableBuilder(column: $table.etag, builder: (column) => column);
 
@@ -2708,6 +2981,10 @@ class $$WorksTableTableManager
                 Value<String?> cover = const Value.absent(),
                 Value<String> origin = const Value.absent(),
                 Value<bool> localOnly = const Value.absent(),
+                Value<bool> hasZh = const Value.absent(),
+                Value<String> zhQuality = const Value.absent(),
+                Value<String?> publishedAt = const Value.absent(),
+                Value<String?> completedAt = const Value.absent(),
                 Value<String?> etag = const Value.absent(),
                 Value<DateTime?> syncedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
@@ -2727,6 +3004,10 @@ class $$WorksTableTableManager
                 cover: cover,
                 origin: origin,
                 localOnly: localOnly,
+                hasZh: hasZh,
+                zhQuality: zhQuality,
+                publishedAt: publishedAt,
+                completedAt: completedAt,
                 etag: etag,
                 syncedAt: syncedAt,
                 rowid: rowid,
@@ -2748,6 +3029,10 @@ class $$WorksTableTableManager
                 Value<String?> cover = const Value.absent(),
                 Value<String> origin = const Value.absent(),
                 Value<bool> localOnly = const Value.absent(),
+                Value<bool> hasZh = const Value.absent(),
+                Value<String> zhQuality = const Value.absent(),
+                Value<String?> publishedAt = const Value.absent(),
+                Value<String?> completedAt = const Value.absent(),
                 Value<String?> etag = const Value.absent(),
                 Value<DateTime?> syncedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
@@ -2767,6 +3052,10 @@ class $$WorksTableTableManager
                 cover: cover,
                 origin: origin,
                 localOnly: localOnly,
+                hasZh: hasZh,
+                zhQuality: zhQuality,
+                publishedAt: publishedAt,
+                completedAt: completedAt,
                 etag: etag,
                 syncedAt: syncedAt,
                 rowid: rowid,

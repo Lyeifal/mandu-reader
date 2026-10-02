@@ -11,7 +11,7 @@ class AppDatabase extends _$AppDatabase {
     : super(executor ?? driftDatabase(name: 'mandu_reader'));
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -26,7 +26,13 @@ class AppDatabase extends _$AppDatabase {
       );
     },
     onUpgrade: (m, from, to) async {
-      throw UnimplementedError('schema $from -> $to 迁移尚未实现（M1）');
+      if (from < 2) {
+        // v2：中文与汉化质量、发布/完结时间（筛选用）
+        await m.addColumn(works, works.hasZh);
+        await m.addColumn(works, works.zhQuality);
+        await m.addColumn(works, works.publishedAt);
+        await m.addColumn(works, works.completedAt);
+      }
     },
   );
 }

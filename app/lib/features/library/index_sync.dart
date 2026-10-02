@@ -6,6 +6,7 @@ import 'package:logging/logging.dart';
 import '../../data/db/app_database.dart';
 import '../bucket/bucket_client.dart';
 import '../bucket/path_helper.dart';
+import 'work_delete.dart';
 import 'works_index.dart';
 
 final _log = Logger('IndexSync');
@@ -32,17 +33,23 @@ class SyncReport {
 /// works.jsonl 同步器（设计文档 §11 M1）。
 ///
 /// 策略：HEAD 取 etag → 未变即返回；变了整文件拉取，逐行按 id 幂等合并入库
-/// （同 id 覆盖，未在文件中的本地行不受影响——local_only 作品因此安全）。
+/// （同 id 覆盖，未在文件中的本地行不受影响——local_only 作品因此安全；
+/// 墓碑行是唯一的删除信号：它把仍持有本地副本的作品转为「仅本设备」，
+/// 没有副本的才把本地记录删掉）。
 ///
 /// 为什么是整文件而不是字节区间增量：字节水位无法感知已消费区段的
 /// 同长度改写（曾因此丢更新），而 works.jsonl 为单人单写入者的追加/覆盖
 /// 日志，体量在 MB 级，整拉一次的带宽可忽略。字节级增量留作 M7 调优项
 /// （届时由写入者在文件头携带 generation 号，变化即全量）。
 class IndexSync {
-  IndexSync({required this.db, required this.client});
+  IndexSync({required this.db, required this.client, this.localRootResolver});
 
   final AppDatabase db;
   final BucketClient client;
+
+  /// 解析本机缓存根（settings 注入，测试可空）。墓碑处理需要它来判断
+  /// 「本机是否还持有该作品的副本」（含小说阅读缓存转正）。
+  final Future<String> Function()? localRootResolver;
 
   static const syncStateName = 'works_index';
 
@@ -63,6 +70,29 @@ class IndexSync {
     await db.transaction(() async {
       for (final e in parsed.entries) {
         await _upsertWork(e, meta.etag);
+      }
+      // 墓碑：云端已删除。本机仍有副本（含小说缓存转正）→ 转「仅本设备」，
+      // 用户可重新上传或删除本地；无副本 → 本地记录一并删除。
+      for (final id in parsed.tombstoneIds) {
+        final row = await (db.select(
+          db.works,
+        )..where((t) => t.id.equals(id))).getSingleOrNull();
+        if (row == null) continue;
+        final resolve = localRootResolver;
+        final bool keepAsLocal;
+        if (resolve != null) {
+          keepAsLocal = await ensureLocalCopy(await resolve(), id);
+        } else {
+          keepAsLocal = row.localOnly; // 探测不了文件时保守保留
+        }
+        if (keepAsLocal) {
+          await (db.update(db.works)..where((t) => t.id.equals(id))).write(
+            const WorksCompanion(localOnly: Value(true)),
+          );
+        } else {
+          await (db.delete(db.works)..where((t) => t.id.equals(id))).go();
+          await db.customStatement('DELETE FROM works_fts WHERE id = ?', [id]);
+        }
       }
       await _saveWatermark(
         byteOffset: body.length,
@@ -105,6 +135,10 @@ class IndexSync {
             cover: Value(e.cover),
             origin: Value(e.origin),
             localOnly: Value(e.localOnly),
+            hasZh: Value(e.hasZh),
+            zhQuality: Value(e.zhQuality),
+            publishedAt: Value(e.publishedAt),
+            completedAt: Value(e.completedAt),
             etag: Value(etag),
             syncedAt: Value(DateTime.now()),
           ),

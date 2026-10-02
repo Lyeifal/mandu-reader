@@ -18,6 +18,18 @@ class Works extends Table {
   TextColumn get origin => text().withDefault(const Constant('manual'))();
   BoolColumn get localOnly => boolean().withDefault(const Constant(false))();
 
+  /// 是否有中文版本（未设置的作品按"有"处理，见设计文档 §4.1）。
+  BoolColumn get hasZh => boolean().withDefault(const Constant(true))();
+
+  /// 汉化质量：high | medium | low（默认 medium）。
+  TextColumn get zhQuality => text().withDefault(const Constant('medium'))();
+
+  /// 发布时间，精确到月（YYYY-MM）。
+  TextColumn get publishedAt => text().nullable()();
+
+  /// 完结时间，精确到月（YYYY-MM）。
+  TextColumn get completedAt => text().nullable()();
+
   /// 同步时对象 etag，用于增量跳过。
   TextColumn get etag => text().nullable()();
   DateTimeColumn get syncedAt => dateTime().nullable()();
