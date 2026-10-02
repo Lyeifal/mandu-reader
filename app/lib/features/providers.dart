@@ -35,7 +35,9 @@ final bucketClientProvider = Provider<BucketClient?>((ref) {
   final cfg = ref.watch(bucketConfigControllerProvider).value;
   if (cfg == null || cfg.secretKey.isEmpty) return null;
   try {
-    return MinioBucketClient(cfg);
+    final client = MinioBucketClient(cfg);
+    ref.onDispose(client.close);
+    return client;
   } on Object {
     return null;
   }
