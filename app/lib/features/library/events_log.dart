@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
 
 import '../../core/exceptions.dart';
+import '../../core/retry.dart';
 import '../../data/db/app_database.dart';
 import '../bucket/bucket_client.dart';
 import '../bucket/path_helper.dart';
@@ -15,6 +16,9 @@ import '../settings/settings_repository.dart';
 import 'works_index.dart' show BadLine;
 
 final _log = Logger('EventsLog');
+
+/// events.jsonl 超过该体积时，同步流程顺手折叠（见 [compactEvents]）。
+const kEventsCompactThreshold = 256 * 1024;
 
 /// 用户状态事件（设计文档 §5：追加式日志、重放合并、确定性）。
 ///
@@ -165,6 +169,110 @@ class ReplayResult {
   final Set<String> deletedBookmarkIds;
 }
 
+/// 折叠结果统计（日志/测试用）。
+class EventCompaction {
+  const EventCompaction({
+    required this.content,
+    required this.progressKept,
+    required this.bookmarksKept,
+    required this.badDropped,
+  });
+
+  /// 折叠后的文件内容（确定性：排序输出，同输入必同输出）。
+  final String content;
+  final int progressKept;
+  final int bookmarksKept;
+
+  /// 坏行/无效行直接丢弃数——它们本就只被跳过。
+  final int badDropped;
+}
+
+/// 事件日志折叠（设计文档 §5.1「30 天折叠」的推广版：不限时间，留赢家）：
+/// 把追加日志压成「必胜者名单」，文件大小从 O(事件数) 降为 O(作品数+书签数)。
+///
+/// - 进度类：每个 work 只留决胜者，改写为 snapshot 行（保留原始 ts/loc，
+///   folded_from 记录折叠掉的条数）；重放端本就按 progress 处理 snapshot
+/// - 书签：每个 id 只留最新状态事件（创建或删除 whichever 新）——
+///   删除行必须留下压住可能复活自旧设备的创建行
+/// - 坏行直接丢弃
+///
+/// 竞态安全：压缩只是「留赢家的有损重写」。两台设备同时折叠/追加时，
+/// 最坏结果是输家行被复活一瞬，但 ts 都赢不过留下的赢家，重放结果不变。
+EventCompaction compactEvents(String content) {
+  final progress = <String, ReaderEvent>{};
+  final progressFolded = <String, int>{};
+  final bookmarkStates = <String, ReaderEvent>{};
+  // 未来 schema 的未知类型事件：不解析、原样保留（保守不丢语义）
+  final unknownRaw = <String>[];
+  var bad = 0;
+  for (final raw in content.split('\n')) {
+    final line = raw.trim();
+    if (line.isEmpty) continue;
+    final Map<String, dynamic> map;
+    try {
+      map = jsonDecode(line) as Map<String, dynamic>;
+    } on Object {
+      bad++;
+      continue;
+    }
+    final type = (map['type'] ?? '').toString();
+    if (type == 'novel_progress' ||
+        type == 'manga_progress' ||
+        type == 'snapshot') {
+      final e = ReaderEvent.fromJson(map);
+      final w = e.work;
+      if (w == null) {
+        bad++;
+        continue;
+      }
+      final cur = progress[w];
+      if (cur == null || _compareProgress(e, cur) > 0) progress[w] = e;
+      progressFolded[w] = (progressFolded[w] ?? 0) + 1;
+    } else if (type == 'bookmark' || type == 'bookmark_delete') {
+      final e = ReaderEvent.fromJson(map);
+      final id = e.id;
+      if (id == null) {
+        bad++;
+        continue;
+      }
+      final cur = bookmarkStates[id];
+      if (cur == null || !e.ts.isBefore(cur.ts)) bookmarkStates[id] = e;
+    } else {
+      unknownRaw.add(line);
+    }
+  }
+
+  final sortedWorks = progress.keys.toList()..sort();
+  final sortedIds = bookmarkStates.keys.toList()..sort();
+  final buf = StringBuffer();
+  for (final w in sortedWorks) {
+    final e = progress[w]!;
+    buf.writeln(
+      jsonEncode({
+        'schema_version': e.schemaVersion,
+        'ts': e.ts.toIso8601String(),
+        'dev': e.dev,
+        'type': 'snapshot',
+        'work': w,
+        'loc': e.loc,
+        'folded_from': progressFolded[w],
+      }),
+    );
+  }
+  for (final id in sortedIds) {
+    buf.writeln(jsonEncode(bookmarkStates[id]!.toJson()));
+  }
+  for (final line in unknownRaw) {
+    buf.writeln(line);
+  }
+  return EventCompaction(
+    content: buf.toString(),
+    progressKept: sortedWorks.length,
+    bookmarksKept: sortedIds.length,
+    badDropped: bad,
+  );
+}
+
 /// progress 决胜：ts 大者胜；ts 相同按 (dev, type) 字典序（§5.1，确定性）。
 int _compareProgress(ReaderEvent a, ReaderEvent b) {
   final c = a.ts.compareTo(b.ts);
@@ -309,11 +417,34 @@ Future<EventSyncReport> syncEventsFromBucket({
       badLines: [],
     );
   }
-  final (events, bad) = parseEventsLog(
-    utf8.decode(bytes, allowMalformed: true),
-  );
+  final content = utf8.decode(bytes, allowMalformed: true);
+  final (events, bad) = parseEventsLog(content);
   final r = replayEvents(events);
   await applyReplay(db, r);
+
+  // 折叠：日志超过阈值时压成「必胜者名单」（O(作品数+书签数)）。
+  // best-effort——失败不影响本次同步结果，下次再压。
+  if (bytes.length > kEventsCompactThreshold) {
+    try {
+      final compacted = compactEvents(content);
+      if (compacted.content != content) {
+        await withRetry(
+          () => client.put(
+            LibraryPaths.eventsLog,
+            Uint8List.fromList(utf8.encode(compacted.content)),
+          ),
+        );
+        _log.info(
+          'events compacted: ${compacted.progressKept} progress + '
+          '${compacted.bookmarksKept} bookmarks kept, '
+          '${compacted.badDropped} bad dropped',
+        );
+      }
+    } on Object catch (e) {
+      _log.warning('events compact failed: $e');
+    }
+  }
+
   return EventSyncReport(
     progressCount: r.progress.length,
     bookmarkCount: r.bookmarks.length,

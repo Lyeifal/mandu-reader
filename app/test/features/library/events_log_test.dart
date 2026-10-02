@@ -196,6 +196,219 @@ void main() {
     });
   });
 
+  group('compactEvents（日志折叠）', () {
+    test('进度：每 work 留决胜者，改写 snapshot 保留原始 ts/loc', () {
+      final content = [
+        line({
+          'ts': t(1).toIso8601String(),
+          'dev': 'pc',
+          'type': 'manga_progress',
+          'work': 'm1',
+          'loc': {'page': 3},
+        }),
+        line({
+          'ts': t(9).toIso8601String(),
+          'dev': 'phone',
+          'type': 'manga_progress',
+          'work': 'm1',
+          'loc': {'page': 12},
+        }),
+        line({
+          'ts': t(2).toIso8601String(),
+          'dev': 'pc',
+          'type': 'novel_progress',
+          'work': 'n1',
+          'loc': {'para': 7},
+        }),
+      ].join('\n');
+
+      final c = compactEvents(content);
+      expect(c.progressKept, 2);
+      final lines = c.content
+          .trim()
+          .split('\n')
+          .map((l) => jsonDecode(l) as Map)
+          .toList();
+      // 按 work 排序：m1 在 n1 前
+      final m1 = lines[0];
+      expect(m1['type'], 'snapshot');
+      expect(m1['work'], 'm1');
+      expect(m1['loc'], {'page': 12}); // 决胜者的 loc
+      expect(m1['ts'], t(9).toIso8601String()); // 保留原始 ts
+      expect(m1['folded_from'], 2);
+      expect(lines[1]['work'], 'n1');
+    });
+
+    test('书签：每 id 留最新状态（删除压创建；更新的创建复活）', () {
+      final content = [
+        line({
+          'ts': t(1).toIso8601String(),
+          'dev': 'pc',
+          'type': 'bookmark',
+          'id': 'b1',
+          'work': 'n1',
+          'loc': {'para': 1},
+        }),
+        line({
+          'ts': t(5).toIso8601String(),
+          'dev': 'pc',
+          'type': 'bookmark_delete',
+          'id': 'b1',
+        }),
+        line({
+          'ts': t(2).toIso8601String(),
+          'dev': 'pc',
+          'type': 'bookmark',
+          'id': 'b2',
+          'work': 'n2',
+          'loc': {'para': 5},
+          'note': '旧',
+        }),
+        line({
+          'ts': t(8).toIso8601String(),
+          'dev': 'phone',
+          'type': 'bookmark',
+          'id': 'b2',
+          'work': 'n2',
+          'loc': {'para': 9},
+          'note': '新',
+        }),
+      ].join('\n');
+
+      final c = compactEvents(content);
+      expect(c.bookmarksKept, 2);
+      final maps = c.content
+          .trim()
+          .split('\n')
+          .map((l) => jsonDecode(l) as Map<String, dynamic>)
+          .toList();
+      final b1 = maps.firstWhere((m) => m['id'] == 'b1');
+      expect(b1['type'], 'bookmark_delete');
+      final b2 = maps.firstWhere((m) => m['id'] == 'b2');
+      expect(b2['ts'], t(8).toIso8601String());
+      expect(b2['note'], '新');
+    });
+
+    test('坏行丢弃、未知类型原样保留', () {
+      final content = [
+        'garbage-line',
+        line({
+          'ts': t(1).toIso8601String(),
+          'dev': 'pc',
+          'type': 'mystery_future',
+          'x': 1,
+        }),
+        line({
+          'ts': t(1).toIso8601String(),
+          'dev': 'pc',
+          'type': 'manga_progress',
+          'work': 'm1',
+          'loc': {'page': 1},
+        }),
+      ].join('\n');
+
+      final c = compactEvents(content);
+      expect(c.badDropped, 1);
+      expect(c.content, isNot(contains('garbage-line')));
+      expect(c.content, contains('mystery_future'));
+    });
+
+    test('往返不变性：压缩后重放与原日志重放结果一致', () {
+      final rows = <String>[
+        for (var i = 0; i < 40; i++) ...[
+          line({
+            'ts': t(i).toIso8601String(),
+            'dev': i.isEven ? 'pc' : 'phone',
+            'type': 'manga_progress',
+            'work': 'm${i % 5}',
+            'loc': {'page': i},
+          }),
+          line({
+            'ts': t(i).toIso8601String(),
+            'dev': 'pc',
+            'type': 'novel_progress',
+            'work': 'n${i % 3}',
+            'loc': {'para': i * 10},
+          }),
+        ],
+        line({
+          'ts': t(3).toIso8601String(),
+          'dev': 'pc',
+          'type': 'bookmark',
+          'id': 'b1',
+          'work': 'n1',
+          'loc': {'para': 1},
+          'note': '要点',
+        }),
+        line({
+          'ts': t(10).toIso8601String(),
+          'dev': 'phone',
+          'type': 'bookmark_delete',
+          'id': 'b1',
+        }),
+        line({
+          'ts': t(7).toIso8601String(),
+          'dev': 'pc',
+          'type': 'bookmark',
+          'id': 'b2',
+          'work': 'n2',
+          'loc': {'para': 9},
+          'color': 'yellow',
+        }),
+        'bad-line',
+        line({
+          'ts': t(2).toIso8601String(),
+          'dev': 'pc',
+          'type': 'snapshot',
+          'work': 'm9',
+          'loc': {'page': 99},
+        }),
+      ];
+      final original = rows.join('\n');
+      final compacted = compactEvents(original);
+
+      final before = replayEvents(parseEventsLog(original).$1);
+      final after = replayEvents(parseEventsLog(compacted.content).$1);
+
+      // 进度：work 集合相同（折叠会重排顺序，按集合比），决胜 ts/loc 一致
+      expect(
+        after.progress.keys.toSet(),
+        before.progress.keys.toSet(),
+      );
+      for (final e in before.progress.entries) {
+        expect(after.progress[e.key]!.ts, e.value.ts);
+        expect(after.progress[e.key]!.loc.toString(), e.value.loc.toString());
+      }
+      // 书签：最终状态集合一致（含删除集）
+      expect(after.bookmarks.keys.toSet(), before.bookmarks.keys.toSet());
+      expect(after.deletedBookmarkIds, before.deletedBookmarkIds);
+      for (final e in before.bookmarks.entries) {
+        expect(after.bookmarks[e.key]!.ts, e.value.ts);
+        expect(after.bookmarks[e.key]!.type, e.value.type);
+      }
+    });
+
+    test('输出确定性：同输入必同输出（etag 稳定）', () {
+      final content = [
+        line({
+          'ts': t(2).toIso8601String(),
+          'dev': 'phone',
+          'type': 'manga_progress',
+          'work': 'b',
+          'loc': {'page': 1},
+        }),
+        line({
+          'ts': t(1).toIso8601String(),
+          'dev': 'pc',
+          'type': 'manga_progress',
+          'work': 'a',
+          'loc': {'page': 2},
+        }),
+      ].join('\n');
+      expect(compactEvents(content).content, compactEvents(content).content);
+    });
+  });
+
   group('appendEvents', () {
     test('首个事件容忍文件不存在；续写补换行', () async {
       final client = FakeBucketClient();
