@@ -916,7 +916,7 @@ class _WorkInfoSheet extends ConsumerWidget {
                 Expanded(
                   child: OutlinedButton.icon(
                     icon: const Icon(Icons.cloud_upload),
-                    label: const Text('上传到书架'),
+                    label: const Text('上传到云端'),
                     onPressed: () => _upload(context, ref),
                   ),
                 ),
@@ -980,24 +980,24 @@ class _WorkInfoSheet extends ConsumerWidget {
       ),
     );
     if (ok != true) return;
+    if (!context.mounted) return;
+    // 弹层还在，但统一先取 messenger，pop 之后照常能用
+    final messenger = ScaffoldMessenger.of(context);
     try {
       await deleteLocalWorkFiles(ref, work);
       ref.invalidate(coverSourceProvider(work));
-      if (context.mounted) {
-        Navigator.of(context).pop();
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('已删除本地文件')));
-      }
+      if (context.mounted) Navigator.of(context).pop();
+      messenger.showSnackBar(
+        const SnackBar(content: Text('已删除本地文件')),
+      );
     } on Object catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('删除失败: $e')));
-      }
+      messenger.showSnackBar(SnackBar(content: Text('删除失败: $e')));
     }
   }
 
   /// 删除云端对象 + 移出同步索引；本设备文件保留（无本地则删书架记录）。
   Future<void> _deleteCloud(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.of(context);
     final hasLocal = work.localOnly;
     final ok = await showDialog<bool>(
       context: context,
@@ -1023,8 +1023,9 @@ class _WorkInfoSheet extends ConsumerWidget {
     if (ok != true) return;
     if (!context.mounted) return;
     Navigator.of(context).pop();
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('正在删除云端副本…')));
+    messenger.showSnackBar(
+      const SnackBar(content: Text('正在删除云端副本…')),
+    );
     try {
       await deleteWorkFromCloud(ref, work);
       ref.read(shelfWorksCacheProvider).clear();
@@ -1035,15 +1036,11 @@ class _WorkInfoSheet extends ConsumerWidget {
         ..invalidate(shelfStatusesProvider)
         ..invalidate(shelfAuthorsProvider)
         ..invalidate(coverSourceProvider(work));
-      if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('已删除云端副本')));
-      }
+      messenger.showSnackBar(
+        const SnackBar(content: Text('已删除云端副本')),
+      );
     } on Object catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('删除失败: $e')));
-      }
+      messenger.showSnackBar(SnackBar(content: Text('删除失败: $e')));
     }
   }
 
@@ -1100,24 +1097,28 @@ class _WorkInfoSheet extends ConsumerWidget {
     ref
       ..invalidate(shelfWorksProvider)
       ..invalidate(shelfTagsProvider);
-    if (context.mounted) {
-      Navigator.of(context).pop();
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('已添加标签')));
-    }
+    if (!context.mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    Navigator.of(context).pop();
+    messenger.showSnackBar(const SnackBar(content: Text('已添加标签')));
   }
 
   /// 上传归档（设计文档 §8.3）：本地页面传桶 + 追加索引 + 行转非本地。
   Future<void> _upload(BuildContext context, WidgetRef ref) async {
+    // 弹层 pop 后其 context 即失效，成功/失败提示都会被吞掉——
+    // 必须先抓住 messenger（messenger.context 在弹层关闭后仍可用作弹窗锚点）。
+    final messenger = ScaffoldMessenger.of(context);
+    // 根 context（应用级，先于任何 await 获取）：失败弹窗的锚点
+    final rootContext = messenger.context;
     final client = ref.read(bucketClientProvider);
     if (client == null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('桶客户端不可用：请先在设置中配置并解锁')));
+      messenger.showSnackBar(
+        const SnackBar(content: Text('桶客户端不可用：请先在设置中配置并解锁')),
+      );
       return;
     }
     Navigator.of(context).pop();
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('开始上传…')));
+    messenger.showSnackBar(const SnackBar(content: Text('开始上传…')));
     try {
       await JmPipeline(
         localRoot: await resolveLocalRoot(ref.read(settingsRepositoryProvider)),
@@ -1134,14 +1135,28 @@ class _WorkInfoSheet extends ConsumerWidget {
         ..invalidate(shelfTagsProvider)
         ..invalidate(shelfStatusesProvider)
         ..invalidate(shelfAuthorsProvider);
-      if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('《${work.title}》已上传归档')));
-      }
+      messenger.showSnackBar(
+        SnackBar(content: Text('《${work.title}》已上传到云端')),
+      );
     } on Object catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('上传失败: $e')));
+      debugPrint('upload failed: $e');
+      // 失败原因用持久弹窗展示（可复制），SnackBar 一闪而过看不到
+      if (rootContext.mounted) {
+        await showDialog<void>(
+          context: rootContext,
+          builder: (ctx) => AlertDialog(
+            title: const Text('上传失败'),
+            content: SelectableText(e.toString()),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('知道了'),
+              ),
+            ],
+          ),
+        );
+      } else {
+        messenger.showSnackBar(SnackBar(content: Text('上传失败: $e')));
       }
     }
   }
