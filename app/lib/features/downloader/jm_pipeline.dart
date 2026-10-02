@@ -45,8 +45,29 @@ Future<String> resolveLocalRoot(SettingsRepository repo) async {
   return custom.isEmpty ? defaultLocalRoot() : custom;
 }
 
+/// 索引读-改-写的内容合并：滤掉同 id 旧行后追加新行（纯函数，单测对象）。
+/// 同作品重复上传不再堆重复行；坏行原样保留（它们在重放端才被跳过）。
+String mergeIndexLine(String existing, Map<String, Object?> entry) {
+  final id = entry['id'];
+  final lines =
+      existing
+          .split('\n')
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .where((line) {
+            try {
+              return (jsonDecode(line) as Map)['id'] != id;
+            } on Object {
+              return true;
+            }
+          })
+          .toList()
+        ..add(jsonEncode(entry));
+  return '${lines.join('\n')}\n';
+}
+
 /// JM 下载 → AVIF 压缩 → 本地登记（local_only）。上传独立决定：
-/// 详情页「上传到书架」走 [upload]，即设计文档 §8.3 的「上传归档」流程。
+/// 详情页「上传到云端」走 [upload]，即设计文档 §8.3 的「上传归档」流程。
 class JmPipeline {
   JmPipeline({JmTranscoder? transcoder, this.localRoot})
     : transcoder = transcoder ?? AvifTranscoder();
@@ -258,6 +279,72 @@ class JmPipeline {
     return bucketDir;
   }
 
+  /// 小说上传归档：book.txt（必需）+ 封面 + chapters.json 传桶，
+  /// 追加索引行（novel 用 total_chars，漫画用 pages）。
+  Future<String> uploadNovel({
+    required AppDatabase db,
+    required BucketClient client,
+    required Work work,
+    required void Function(String phase) onProgress,
+  }) async {
+    final root = await _resolveRoot();
+    var dir = Directory(p.join(root, work.id));
+    if (!await dir.exists() && root != await defaultLocalRoot()) {
+      // 自定义目录下没有，回退默认目录找（历史下载兼容）
+      dir = Directory(p.join(await defaultLocalRoot(), work.id));
+    }
+    if (!await dir.exists()) {
+      throw StateError('本地目录不存在：${dir.path}');
+    }
+    final txt = File(p.join(dir.path, 'book.txt'));
+    if (!await txt.exists()) throw StateError('本地目录中没有 book.txt');
+
+    final author = work.author.isEmpty ? '佚名' : work.author;
+    final bucketDir = LibraryPaths.novelDir(
+      author: author,
+      series: work.series,
+      title: work.title,
+    );
+    onProgress('上传 book.txt…');
+    await client.put(
+      LibraryPaths.novelTxt(
+        author: author,
+        series: work.series,
+        title: work.title,
+      ),
+      await txt.readAsBytes(),
+    );
+
+    var coverKey = '';
+    final coverName = work.cover;
+    if (coverName != null && coverName.isNotEmpty) {
+      final cf = File(p.join(dir.path, coverName));
+      if (await cf.exists()) {
+        onProgress('上传封面…');
+        coverKey = '$bucketDir/${p.basename(coverName)}';
+        await client.put(coverKey, await cf.readAsBytes());
+      }
+    }
+    final chapters = File(p.join(dir.path, 'chapters.json'));
+    if (await chapters.exists()) {
+      onProgress('上传章节表…');
+      await client.put(
+        '$bucketDir/chapters.json',
+        await chapters.readAsBytes(),
+      );
+    }
+
+    final totalChars = (await txt.readAsString()).length;
+    await _appendNovelIndex(client, work, bucketDir, coverKey, totalChars);
+    await (db.update(db.works)..where((t) => t.id.equals(work.id))).write(
+      WorksCompanion(
+        localOnly: const Value(false),
+        cover: Value(coverKey.isEmpty ? work.cover : coverKey),
+      ),
+    );
+    return bucketDir;
+  }
+
   // ---------------------------------------------------------------- 内部
 
   Future<List<String>> _listPages(String root) async {
@@ -300,7 +387,7 @@ class JmPipeline {
     return p.basename(files.first);
   }
 
-  /// 追加一行到 works.jsonl（读取-追加-写回；同 id 同步时幂等覆盖）。
+  /// 追加/覆写某 id 的漫画索引行（读取-滤旧-写回；同 id 同步时幂等覆盖）。
   /// [compressed] 标记页面是否已全部 AVIF——false 时 PC 端「压缩云端」会接手处理。
   Future<void> _appendIndex(
     BucketClient client,
@@ -310,16 +397,7 @@ class JmPipeline {
     String coverKey,
     bool compressed,
   ) async {
-    final existing = utf8.decode(
-      await client.getAll(LibraryPaths.worksIndex),
-      allowMalformed: true,
-    );
-    final lines = existing
-        .split('\n')
-        .map((e) => e.trim())
-        .where((e) => e.isNotEmpty)
-        .toList();
-    final entry = <String, Object?>{
+    await _appendIndexLine(client, <String, Object?>{
       'id': work.id,
       'type': work.type,
       'title': work.title,
@@ -338,11 +416,49 @@ class JmPipeline {
       'published_at': work.publishedAt,
       'completed_at': work.completedAt,
       'compressed': compressed,
-    };
-    lines.add(jsonEncode(entry));
+    });
+  }
+
+  /// 小说索引行：novel 的检索字段是 total_chars（无 pages）。
+  Future<void> _appendNovelIndex(
+    BucketClient client,
+    Work work,
+    String dir,
+    String coverKey,
+    int totalChars,
+  ) async {
+    await _appendIndexLine(client, <String, Object?>{
+      'id': work.id,
+      'type': 'novel',
+      'title': work.title,
+      'author': work.author,
+      'series': work.series,
+      'volume': work.volume,
+      'tags': (jsonDecode(work.tags) as List?) ?? const [],
+      'status': work.status,
+      'total_chars': totalChars,
+      'last_updated': _today(),
+      if (coverKey.isNotEmpty) 'cover': coverKey,
+      'origin': work.origin,
+      'local_only': false,
+      'has_zh': work.hasZh,
+      'zh_quality': work.zhQuality,
+      'published_at': work.publishedAt,
+      'completed_at': work.completedAt,
+    });
+  }
+
+  Future<void> _appendIndexLine(
+    BucketClient client,
+    Map<String, Object?> entry,
+  ) async {
+    final existing = utf8.decode(
+      await client.getAll(LibraryPaths.worksIndex),
+      allowMalformed: true,
+    );
     await client.put(
       LibraryPaths.worksIndex,
-      Uint8List.fromList(utf8.encode('${lines.join('\n')}\n')),
+      Uint8List.fromList(utf8.encode(mergeIndexLine(existing, entry))),
     );
   }
 

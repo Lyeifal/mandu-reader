@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../library/shelf_query.dart';
+import '../library/upload_tasks.dart';
 import '../providers.dart';
 import 'avif_transcoder.dart';
 import 'jm_pipeline.dart';
@@ -235,64 +236,134 @@ class JmTasksSheet extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tasks = ref.watch(jmTasksProvider);
+    final uploads = ref.watch(uploadTasksProvider);
+    final theme = Theme.of(context);
+    final hasAny = tasks.isNotEmpty || uploads.isNotEmpty;
     return SafeArea(
       child: ListView(
         shrinkWrap: true,
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         children: [
-          if (tasks.isEmpty)
+          if (!hasAny)
             const Padding(
               padding: EdgeInsets.all(24),
-              child: Center(child: Text('暂无下载任务')),
+              child: Center(child: Text('暂无任务')),
             )
-          else
-            for (final t in tasks) ...[
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Icon(switch (t.status) {
-                  JmTaskStatus.done => Icons.check_circle,
-                  JmTaskStatus.failed => Icons.error,
-                  _ => Icons.download,
-                }),
-                title: Text(
-                  t.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                subtitle: Text(
-                  t.error ??
-                      t.resultLine ??
-                      (t.phase.isEmpty ? t.statusLabel : t.phase),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (t.status == JmTaskStatus.failed)
-                      TextButton(
-                        onPressed: () => startJmDownload(
-                          ProviderScope.containerOf(context, listen: false),
-                          albumId: t.albumId,
-                          ffmpegPath: t.ffmpegPath,
-                          proxy: t.proxy,
-                        ),
-                        child: const Text('重试'),
-                      ),
-                    if (t.status == JmTaskStatus.done ||
-                        t.status == JmTaskStatus.failed)
-                      IconButton(
-                        tooltip: '移除',
-                        icon: const Icon(Icons.close, size: 18),
-                        onPressed: () => ref
-                            .read(jmTasksProvider.notifier)
-                            .remove(t.albumId),
-                      ),
-                  ],
-                ),
-              ),
-              const Divider(height: 1),
+          else ...[
+            if (tasks.isNotEmpty) ...[
+              _sectionTitle(theme, 'JM 下载'),
+              for (final t in tasks) ...[
+                _jmTile(context, ref, t),
+                const Divider(height: 1),
+              ],
             ],
+            if (uploads.isNotEmpty) ...[
+              _sectionTitle(theme, '上传到云端'),
+              for (final t in uploads) ...[
+                _uploadTile(context, ref, t),
+                const Divider(height: 1),
+              ],
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _sectionTitle(ThemeData theme, String text) => Padding(
+    padding: const EdgeInsets.only(top: 12, bottom: 4),
+    child: Text(
+      text,
+      style: theme.textTheme.labelMedium?.copyWith(
+        color: theme.colorScheme.outline,
+        letterSpacing: 2,
+      ),
+    ),
+  );
+
+  Widget _jmTile(BuildContext context, WidgetRef ref, JmTask t) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(switch (t.status) {
+        JmTaskStatus.done => Icons.check_circle,
+        JmTaskStatus.failed => Icons.error,
+        _ => Icons.download,
+      }),
+      title: Text(t.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+      subtitle: Text(
+        t.error ?? t.resultLine ?? (t.phase.isEmpty ? t.statusLabel : t.phase),
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (t.status == JmTaskStatus.failed)
+            TextButton(
+              onPressed: () => startJmDownload(
+                ProviderScope.containerOf(context, listen: false),
+                albumId: t.albumId,
+                ffmpegPath: t.ffmpegPath,
+                proxy: t.proxy,
+              ),
+              child: const Text('重试'),
+            ),
+          if (t.status == JmTaskStatus.done || t.status == JmTaskStatus.failed)
+            IconButton(
+              tooltip: '移除',
+              icon: const Icon(Icons.close, size: 18),
+              onPressed: () =>
+                  ref.read(jmTasksProvider.notifier).remove(t.albumId),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _uploadTile(BuildContext context, WidgetRef ref, UploadTask t) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(switch (t.status) {
+        UploadTaskStatus.done => Icons.check_circle,
+        UploadTaskStatus.failed => Icons.error,
+        _ => Icons.cloud_upload,
+      }),
+      title: Text(t.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+      subtitle: Text(
+        t.error ?? (t.phase.isEmpty ? t.statusLabel : t.phase),
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (t.status == UploadTaskStatus.failed)
+            TextButton(
+              onPressed: () async {
+                final container = ProviderScope.containerOf(
+                  context,
+                  listen: false,
+                );
+                final w = await loadWorkForUpload(container, t.workId);
+                if (!context.mounted) return;
+                if (w == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('书架里已没有这本，无法重试')),
+                  );
+                  return;
+                }
+                await startUploadTasks(container, [w]);
+              },
+              child: const Text('重试'),
+            ),
+          if (t.status == UploadTaskStatus.done ||
+              t.status == UploadTaskStatus.failed)
+            IconButton(
+              tooltip: '移除',
+              icon: const Icon(Icons.close, size: 18),
+              onPressed: () =>
+                  ref.read(uploadTasksProvider.notifier).remove(t.workId),
+            ),
         ],
       ),
     );

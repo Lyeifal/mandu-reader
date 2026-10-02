@@ -23,6 +23,7 @@ import 'events_log.dart';
 import 'shelf_add_dialog.dart';
 import 'shelf_filter_panel.dart';
 import 'shelf_query.dart';
+import 'upload_tasks.dart';
 import 'work_delete.dart';
 
 /// 紧凑分段按钮样式：手机上顶栏不挤。
@@ -180,6 +181,61 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
     );
   }
 
+  // ---------------------------------------------------------------- 多选上传
+
+  final Set<String> _selected = {};
+
+  /// 多选模式的顶栏：全选本页 → 上传到云端。
+  AppBar _selectionAppBar(List<Work> pageWorks) {
+    return AppBar(
+      leading: IconButton(
+        tooltip: '取消选择',
+        icon: const Icon(Icons.close),
+        onPressed: () => setState(() => _selected.clear()),
+      ),
+      titleSpacing: 0,
+      title: Text('已选 ${_selected.length} 项'),
+      actions: [
+        IconButton(
+          tooltip: '全选本页',
+          icon: const Icon(Icons.select_all),
+          onPressed: () =>
+              setState(() => _selected.addAll(pageWorks.map((w) => w.id))),
+        ),
+        IconButton(
+          tooltip: '上传到云端',
+          icon: const Icon(Icons.cloud_upload),
+          onPressed: () => _uploadSelected(pageWorks),
+        ),
+        const SizedBox(width: 8),
+      ],
+    );
+  }
+
+  /// 批量上传：仅本设备作品可传；已在云端的静默跳过并提示。
+  Future<void> _uploadSelected(List<Work> pageWorks) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final picked = pageWorks.where((w) => _selected.contains(w.id)).toList();
+    final eligible = picked.where((w) => w.localOnly).toList();
+    final skippedCloud = picked.length - eligible.length;
+    if (eligible.isEmpty) {
+      messenger.showSnackBar(const SnackBar(content: Text('所选作品均已在云端，无需上传')));
+      return;
+    }
+    final container = ProviderScope.containerOf(context, listen: false);
+    setState(() => _selected.clear());
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          '已加入 ${eligible.length} 个上传任务'
+          '${skippedCloud > 0 ? '（$skippedCloud 本已在云端，已跳过）' : ''}'
+          '，右上角任务列表查看进度',
+        ),
+      ),
+    );
+    await startUploadTasks(container, eligible);
+  }
+
   @override
   Widget build(BuildContext context) {
     final works = ref.watch(shelfWorksProvider);
@@ -199,136 +255,165 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
         ref.read(shelfPageProvider.notifier).go(pages);
       });
     }
+    final pageWorks = works.value ?? const <Work>[];
+    final selecting = _selected.isNotEmpty && _tab != 'jm';
 
     return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          tooltip: _panelOpen ? '收起筛选栏' : '展开筛选栏',
-          icon: Icon(_panelOpen ? Icons.chevron_left : Icons.filter_list),
-          onPressed: () => setState(() => _panelOpen = !_panelOpen),
-        ),
-        titleSpacing: 0,
-        title: Row(
-          children: [
-            if (_compact)
-              const Text('书架', style: TextStyle(fontSize: 14))
-            else
-              const Text('书架'),
-            if (_compact)
-              const SizedBox(width: 8)
-            else
-              const SizedBox(width: 12),
-            _buildTabs(),
-            if (!_compact) ...[
-              const SizedBox(width: 12),
-              if (_tab != 'jm') SizedBox(width: 260, child: _buildSearch()),
-            ],
-          ],
-        ),
-        actions: _compact
-            ? [
-                PopupMenuButton<String>(
-                  tooltip: '更多',
-                  icon: const Icon(Icons.more_vert),
-                  onSelected: _onMenu,
-                  itemBuilder: (context) => [
-                    PopupMenuItem(enabled: false, child: Text('共 $total 部')),
-                    const PopupMenuItem(value: 'add', child: Text('添加作品')),
-                    const PopupMenuItem(value: 'jm', child: Text('JM 下载')),
-                    const PopupMenuItem(value: 'tasks', child: Text('下载任务')),
-                    PopupMenuItem(
-                      value: 'sync',
-                      enabled: !_syncing,
-                      child: const Text('同步'),
-                    ),
-                    if (ShelfPage.cloudCompressSupported)
-                      PopupMenuItem(
-                        value: 'compress',
-                        enabled: !compressState.running,
-                        child: const Text('压缩云端漫画'),
-                      ),
-                    if (ShelfPage.cloudCompressSupported)
-                      const PopupMenuItem(
-                        value: 'review',
-                        child: Text('审阅压缩（逐页决定）'),
-                      ),
-                    const PopupMenuItem(value: 'settings', child: Text('设置')),
+      appBar: selecting
+          ? _selectionAppBar(pageWorks)
+          : AppBar(
+              leading: IconButton(
+                tooltip: _panelOpen ? '收起筛选栏' : '展开筛选栏',
+                icon: Icon(_panelOpen ? Icons.chevron_left : Icons.filter_list),
+                onPressed: () => setState(() => _panelOpen = !_panelOpen),
+              ),
+              titleSpacing: 0,
+              title: Row(
+                children: [
+                  if (_compact)
+                    const Text('书架', style: TextStyle(fontSize: 14))
+                  else
+                    const Text('书架'),
+                  if (_compact)
+                    const SizedBox(width: 8)
+                  else
+                    const SizedBox(width: 12),
+                  _buildTabs(),
+                  if (!_compact) ...[
+                    const SizedBox(width: 12),
+                    if (_tab != 'jm')
+                      SizedBox(width: 260, child: _buildSearch()),
                   ],
-                ),
-              ]
-            : [
-                Padding(
-                  padding: const EdgeInsets.only(right: 4),
-                  child: Center(
-                    child: Text(
-                      '共 $total 部',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.outline,
+                ],
+              ),
+              actions: _compact
+                  ? [
+                      PopupMenuButton<String>(
+                        tooltip: '更多',
+                        icon: const Icon(Icons.more_vert),
+                        onSelected: _onMenu,
+                        itemBuilder: (context) => [
+                          PopupMenuItem(
+                            enabled: false,
+                            child: Text('共 $total 部'),
+                          ),
+                          const PopupMenuItem(
+                            value: 'add',
+                            child: Text('添加作品'),
+                          ),
+                          const PopupMenuItem(
+                            value: 'jm',
+                            child: Text('JM 下载'),
+                          ),
+                          const PopupMenuItem(
+                            value: 'tasks',
+                            child: Text('下载任务'),
+                          ),
+                          PopupMenuItem(
+                            value: 'sync',
+                            enabled: !_syncing,
+                            child: const Text('同步'),
+                          ),
+                          if (ShelfPage.cloudCompressSupported)
+                            PopupMenuItem(
+                              value: 'compress',
+                              enabled: !compressState.running,
+                              child: const Text('压缩云端漫画'),
+                            ),
+                          if (ShelfPage.cloudCompressSupported)
+                            const PopupMenuItem(
+                              value: 'review',
+                              child: Text('审阅压缩（逐页决定）'),
+                            ),
+                          const PopupMenuItem(
+                            value: 'settings',
+                            child: Text('设置'),
+                          ),
+                        ],
                       ),
-                    ),
-                  ),
-                ),
-                IconButton(
-                  tooltip: '添加作品',
-                  icon: const Icon(Icons.add),
-                  onPressed: () => _addWork(type),
-                ),
-                IconButton(
-                  tooltip: 'JM 下载',
-                  icon: const Icon(Icons.cloud_download),
-                  onPressed: () => showDialog<void>(
-                    context: context,
-                    builder: (context) => const JmDownloadDialog(),
-                  ),
-                ),
-                Consumer(
-                  builder: (context, ref, child) {
-                    final active = ref.watch(activeJmTaskCountProvider);
-                    return Badge.count(
-                      count: active,
-                      isLabelVisible: active > 0,
-                      child: IconButton(
-                        tooltip: '下载任务',
-                        icon: const Icon(Icons.downloading),
-                        onPressed: () => JmTasksSheet.show(context),
+                    ]
+                  : [
+                      Padding(
+                        padding: const EdgeInsets.only(right: 4),
+                        child: Center(
+                          child: Text(
+                            '共 $total 部',
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(
+                                  color: Theme.of(context).colorScheme.outline,
+                                ),
+                          ),
+                        ),
                       ),
-                    );
-                  },
-                ),
-                IconButton(
-                  tooltip: '同步',
-                  icon: _syncing
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.sync),
-                  onPressed: _syncing ? null : _sync,
-                ),
-                if (ShelfPage.cloudCompressSupported)
-                  IconButton(
-                    tooltip: '压缩云端漫画（把桶里未压缩的页面转 AVIF）',
-                    icon: const Icon(Icons.compress),
-                    onPressed: compressState.running ? null : _compressCloud,
-                  ),
-                if (ShelfPage.cloudCompressSupported)
-                  IconButton(
-                    tooltip: '审阅压缩：逐页对比原图与 AVIF，人工决定保留哪张',
-                    icon: const Icon(Icons.compare_outlined),
-                    onPressed: () => showDialog<void>(
-                      context: context,
-                      barrierDismissible: false,
-                      builder: (context) => const CompressReviewDialog(),
-                    ),
-                  ),
-                IconButton(
-                  tooltip: '设置',
-                  icon: const Icon(Icons.settings),
-                  onPressed: () => context.go(SettingsPage.path),
-                ),
-              ],
-      ),
+                      IconButton(
+                        tooltip: '添加作品',
+                        icon: const Icon(Icons.add),
+                        onPressed: () => _addWork(type),
+                      ),
+                      IconButton(
+                        tooltip: 'JM 下载',
+                        icon: const Icon(Icons.cloud_download),
+                        onPressed: () => showDialog<void>(
+                          context: context,
+                          builder: (context) => const JmDownloadDialog(),
+                        ),
+                      ),
+                      Consumer(
+                        builder: (context, ref, child) {
+                          final jmActive = ref.watch(activeJmTaskCountProvider);
+                          final upActive = ref.watch(
+                            activeUploadTaskCountProvider,
+                          );
+                          final active = jmActive + upActive;
+                          return Badge.count(
+                            count: active,
+                            isLabelVisible: active > 0,
+                            child: IconButton(
+                              tooltip: '任务列表（下载/上传）',
+                              icon: const Icon(Icons.task_alt),
+                              onPressed: () => JmTasksSheet.show(context),
+                            ),
+                          );
+                        },
+                      ),
+                      IconButton(
+                        tooltip: '同步',
+                        icon: _syncing
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.sync),
+                        onPressed: _syncing ? null : _sync,
+                      ),
+                      if (ShelfPage.cloudCompressSupported)
+                        IconButton(
+                          tooltip: '压缩云端漫画（把桶里未压缩的页面转 AVIF）',
+                          icon: const Icon(Icons.compress),
+                          onPressed: compressState.running
+                              ? null
+                              : _compressCloud,
+                        ),
+                      if (ShelfPage.cloudCompressSupported)
+                        IconButton(
+                          tooltip: '审阅压缩：逐页对比原图与 AVIF，人工决定保留哪张',
+                          icon: const Icon(Icons.compare_outlined),
+                          onPressed: () => showDialog<void>(
+                            context: context,
+                            barrierDismissible: false,
+                            builder: (context) => const CompressReviewDialog(),
+                          ),
+                        ),
+                      IconButton(
+                        tooltip: '设置',
+                        icon: const Icon(Icons.settings),
+                        onPressed: () => context.go(SettingsPage.path),
+                      ),
+                    ],
+            ),
       body: Row(
         children: [
           AnimatedContainer(
@@ -386,7 +471,26 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
                                         itemCount: list.length,
                                         itemBuilder: (context, i) => _WorkCard(
                                           work: list[i],
-                                          onTap: () => _showWorkInfo(list[i]),
+                                          selecting: _selected.isNotEmpty,
+                                          selected: _selected.contains(
+                                            list[i].id,
+                                          ),
+                                          onTap: () {
+                                            if (_selected.isNotEmpty) {
+                                              setState(() {
+                                                if (!_selected.remove(
+                                                  list[i].id,
+                                                )) {
+                                                  _selected.add(list[i].id);
+                                                }
+                                              });
+                                              return;
+                                            }
+                                            _showWorkInfo(list[i]);
+                                          },
+                                          onLongPress: () => setState(
+                                            () => _selected.add(list[i].id),
+                                          ),
                                         ),
                                       ),
                               ),
@@ -547,10 +651,21 @@ class _EmptyHint extends ConsumerWidget {
 }
 
 class _WorkCard extends ConsumerWidget {
-  const _WorkCard({required this.work, required this.onTap});
+  const _WorkCard({
+    required this.work,
+    required this.onTap,
+    this.onLongPress,
+    this.selecting = false,
+    this.selected = false,
+  });
 
   final Work work;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
+
+  /// 书架多选模式：点按切换勾选，长按进入选择。
+  final bool selecting;
+  final bool selected;
 
   static const _statusColors = {
     'ongoing': Color(0xFF4CAF7D),
@@ -569,6 +684,7 @@ class _WorkCard extends ConsumerWidget {
       margin: EdgeInsets.zero,
       child: InkWell(
         onTap: onTap,
+        onLongPress: onLongPress,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -593,7 +709,22 @@ class _WorkCard extends ConsumerWidget {
                             )
                     else
                       _coverPlaceholder(work),
-                    if (statusColor != null)
+                    if (selecting)
+                      Positioned(
+                        top: 6,
+                        right: 6,
+                        child: Icon(
+                          selected
+                              ? Icons.check_circle
+                              : Icons.radio_button_unchecked,
+                          size: 20,
+                          color: Colors.white,
+                          shadows: const [
+                            Shadow(blurRadius: 3, color: Colors.black54),
+                          ],
+                        ),
+                      )
+                    else if (statusColor != null)
                       Positioned(
                         top: 6,
                         right: 6,
@@ -987,9 +1118,7 @@ class _WorkInfoSheet extends ConsumerWidget {
       await deleteLocalWorkFiles(ref, work);
       ref.invalidate(coverSourceProvider(work));
       if (context.mounted) Navigator.of(context).pop();
-      messenger.showSnackBar(
-        const SnackBar(content: Text('已删除本地文件')),
-      );
+      messenger.showSnackBar(const SnackBar(content: Text('已删除本地文件')));
     } on Object catch (e) {
       messenger.showSnackBar(SnackBar(content: Text('删除失败: $e')));
     }
@@ -1023,9 +1152,7 @@ class _WorkInfoSheet extends ConsumerWidget {
     if (ok != true) return;
     if (!context.mounted) return;
     Navigator.of(context).pop();
-    messenger.showSnackBar(
-      const SnackBar(content: Text('正在删除云端副本…')),
-    );
+    messenger.showSnackBar(const SnackBar(content: Text('正在删除云端副本…')));
     try {
       await deleteWorkFromCloud(ref, work);
       ref.read(shelfWorksCacheProvider).clear();
@@ -1036,9 +1163,7 @@ class _WorkInfoSheet extends ConsumerWidget {
         ..invalidate(shelfStatusesProvider)
         ..invalidate(shelfAuthorsProvider)
         ..invalidate(coverSourceProvider(work));
-      messenger.showSnackBar(
-        const SnackBar(content: Text('已删除云端副本')),
-      );
+      messenger.showSnackBar(const SnackBar(content: Text('已删除云端副本')));
     } on Object catch (e) {
       messenger.showSnackBar(SnackBar(content: Text('删除失败: $e')));
     }
@@ -1103,62 +1228,16 @@ class _WorkInfoSheet extends ConsumerWidget {
     messenger.showSnackBar(const SnackBar(content: Text('已添加标签')));
   }
 
-  /// 上传归档（设计文档 §8.3）：本地页面传桶 + 追加索引 + 行转非本地。
+  /// 上传归档（设计文档 §8.3）：进上传任务队列，进度/结果在任务列表查看。
   Future<void> _upload(BuildContext context, WidgetRef ref) async {
-    // 弹层 pop 后其 context 即失效，成功/失败提示都会被吞掉——
-    // 必须先抓住 messenger（messenger.context 在弹层关闭后仍可用作弹窗锚点）。
     final messenger = ScaffoldMessenger.of(context);
-    // 根 context（应用级，先于任何 await 获取）：失败弹窗的锚点
-    final rootContext = messenger.context;
-    final client = ref.read(bucketClientProvider);
-    if (client == null) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('桶客户端不可用：请先在设置中配置并解锁')),
-      );
-      return;
-    }
+    // 弹层 pop 后 context 即失效，container/messenger 都要先抓
+    final container = ProviderScope.containerOf(context, listen: false);
     Navigator.of(context).pop();
-    messenger.showSnackBar(const SnackBar(content: Text('开始上传…')));
-    try {
-      await JmPipeline(
-        localRoot: await resolveLocalRoot(ref.read(settingsRepositoryProvider)),
-      ).upload(
-        db: ref.read(appDatabaseProvider),
-        client: client,
-        work: work,
-        onProgress: (_) {},
-      );
-      ref.read(shelfWorksCacheProvider).clear();
-      ref
-        ..invalidate(shelfWorksProvider)
-        ..invalidate(shelfTotalProvider)
-        ..invalidate(shelfTagsProvider)
-        ..invalidate(shelfStatusesProvider)
-        ..invalidate(shelfAuthorsProvider);
-      messenger.showSnackBar(
-        SnackBar(content: Text('《${work.title}》已上传到云端')),
-      );
-    } on Object catch (e) {
-      debugPrint('upload failed: $e');
-      // 失败原因用持久弹窗展示（可复制），SnackBar 一闪而过看不到
-      if (rootContext.mounted) {
-        await showDialog<void>(
-          context: rootContext,
-          builder: (ctx) => AlertDialog(
-            title: const Text('上传失败'),
-            content: SelectableText(e.toString()),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(),
-                child: const Text('知道了'),
-              ),
-            ],
-          ),
-        );
-      } else {
-        messenger.showSnackBar(SnackBar(content: Text('上传失败: $e')));
-      }
-    }
+    messenger.showSnackBar(
+      const SnackBar(content: Text('已加入上传任务，右上角任务列表查看进度')),
+    );
+    await startUploadTasks(container, [work]);
   }
 
   Widget _row(String label, String value, {VoidCallback? onTap}) {
