@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
 import '../../data/db/app_database.dart';
+import '../bucket/path_helper.dart';
 import '../downloader/jm_pipeline.dart';
 import '../providers.dart';
 
@@ -69,7 +70,6 @@ class ShelfFilter {
   static const empty = ShelfFilter();
 
   bool get isDefault =>
-      type.isEmpty &&
       author.isEmpty &&
       status.isEmpty &&
       tagModes.isEmpty &&
@@ -187,12 +187,16 @@ final shelfQueryProvider = Provider<(ShelfFilter, int, int)>(
   ),
 );
 
+/// 剔除 LIKE 通配符：用户输入的 %/_ 按字面处理（drift 的 like 不支持
+/// ESCAPE 子句，直接剔除，避免 `100%` 这类输入意外全匹配）。
+String _likeLiteral(String s) => s.replaceAll(RegExp('[%_]'), '');
+
 Expression<bool>? _where($WorksTable t, ShelfFilter f) {
   final conds = <Expression<bool>>[];
   if (f.type.isNotEmpty) conds.add(t.type.equals(f.type));
   if (f.type == 'novel' && f.novelCat.isNotEmpty) {
     // 小说分类按标签匹配（起点/番茄风格分类，给作品打上对应标签即归入）
-    conds.add(t.tags.like('%${f.novelCat}%'));
+    conds.add(t.tags.like('%${_likeLiteral(f.novelCat)}%'));
   }
   if (f.author.isNotEmpty) conds.add(t.author.equals(f.author));
   if (f.status.isNotEmpty) conds.add(t.status.equals(f.status));
@@ -224,7 +228,7 @@ Expression<bool>? _where($WorksTable t, ShelfFilter f) {
   if (f.tagModes.isNotEmpty) {
     final ors = <Expression<bool>>[];
     for (final e in f.tagModes.entries) {
-      final like = t.tags.like('%${e.key}%');
+      final like = t.tags.like('%${_likeLiteral(e.key)}%');
       switch (e.value) {
         case TagMode.and:
           conds.add(like);
@@ -242,7 +246,7 @@ Expression<bool>? _where($WorksTable t, ShelfFilter f) {
       conds.add(e);
     }
   }
-  final q = f.query.trim();
+  final q = _likeLiteral(f.query.trim());
   if (q.isNotEmpty) {
     final like = '%$q%';
     conds.add(
@@ -374,7 +378,8 @@ final coverSourceProvider = FutureProvider.family<(String, bool)?, Work>((
   final client = ref.read(bucketClientProvider);
   if (client == null) return null;
   try {
-    return (await client.presignGet(cover), true);
+    // cover 可能不带 library/ 前缀（设计文档 §4.1 示例），读取侧归一
+    return (await client.presignGet(LibraryPaths.normalizeKey(cover)), true);
   } on Object {
     return null;
   }
