@@ -50,4 +50,7 @@ abstract class BucketClient {
 
   /// 列出 prefix 下的 key（至多 [max] 个）。
   Future<List<String>> listKeys(String prefix, {int max = 20});
+
+  /// 删除单个对象。
+  Future<void> delete(String key);
 }

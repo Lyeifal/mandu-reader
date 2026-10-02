@@ -6,7 +6,9 @@ sealed class StorageException implements Exception {
   final Object? cause;
 
   @override
-  String toString() => '$runtimeType: $message';
+  String toString() => cause == null
+      ? '$runtimeType: $message'
+      : '$runtimeType: $message (原因: $cause)';
 }
 
 /// 桶配置不完整或非法。

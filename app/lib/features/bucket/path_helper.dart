@@ -7,8 +7,12 @@ class LibraryPaths {
   static const indexPrefix = '$root/_index/';
   static const statePrefix = '$root/_state/';
   static const fontsPrefix = '$root/_fonts/';
+  static const appPrefix = '$root/_app/';
   static const worksIndex = '${indexPrefix}works.jsonl';
   static const eventsLog = '${statePrefix}events.jsonl';
+
+  /// 应用初始化配置（喜好标签等跨设备偏好），首次连接桶时创建。
+  static const appConfig = '${appPrefix}config.json';
 
   static const _illegal = <String>[
     '/',
@@ -21,6 +25,12 @@ class LibraryPaths {
     '>',
     '|',
   ];
+
+  /// 归一化桶内 key：索引行的 cover 等路径字段按设计文档 §4.1 的示例
+  /// 可能不带 `library/` 前缀（如 `小说/…/cover.avif`），而 App 自己写入的
+  /// 索引行带前缀——读取侧统一补全，写入侧始终写带前缀的完整 key。
+  static String normalizeKey(String key) =>
+      key.startsWith('$root/') ? key : '$root/$key';
 
   /// 清洗单段路径名：去掉文件系统非法字符与控制字符、首尾空白与前导点，
   /// 长度截到 80；空结果与点段回退 `unnamed`。保留内部点（文件名扩展名需要）。
@@ -35,7 +45,15 @@ class LibraryPaths {
     while (s.startsWith('.')) {
       s = s.substring(1);
     }
-    if (s.length > 80) s = s.substring(0, 80).trim();
+    if (s.length > 80) {
+      s = s.substring(0, 80);
+      // 截断可能切断 UTF-16 代理对（如 emoji），退一个单位保持合法字符串
+      final last = s.codeUnitAt(s.length - 1);
+      if (last >= 0xD800 && last <= 0xDBFF) {
+        s = s.substring(0, s.length - 1);
+      }
+      s = s.trim();
+    }
     if (s.isEmpty || s == '.' || s == '..') return 'unnamed';
     return s;
   }

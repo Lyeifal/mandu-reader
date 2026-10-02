@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
@@ -37,7 +38,30 @@ class MinioBucketClient implements BucketClient {
   Future<ConnectivityResult> checkConnectivity() async {
     final sw = Stopwatch()..start();
     try {
-      final exists = await _minio.bucketExists(config.bucket);
+      var exists = await _minio.bucketExists(config.bucket);
+      if (!exists) {
+        // 缤纷云等 S3 兼容实现对 HEAD bucket 返回 204，minio 的 bucketExists 只认 200；
+        // 用一次列表请求复核，能列出（哪怕是空）就说明桶存在且有权。
+        try {
+          await _minio
+              .listObjects(
+                config.bucket,
+                prefix: LibraryPaths.root,
+                recursive: true,
+              )
+              .take(1)
+              .toList();
+          exists = true;
+        } on MinioS3Error catch (e) {
+          final code = e.error?.code;
+          if (code == 'NoSuchBucket' ||
+              code == 'NotFound' ||
+              code == 'Not Found') {
+            throw const ConnectionException('bucket 不存在或无权访问');
+          }
+          rethrow;
+        }
+      }
       if (!exists) {
         throw const ConnectionException('bucket 不存在或无权访问');
       }
@@ -68,21 +92,55 @@ class MinioBucketClient implements BucketClient {
   }
 
   @override
+  /// 对象元信息。minio.statObject 写死 expect 200，而缤纷云等实现
+  /// 对存在的对象返回 204——改用预签名 GET + Range 0-0，
+  /// 从 Content-Range / ETag 头取大小与 etag（全 S3 兼容实现通用）。
   Future<ObjectMeta> stat(String key) async {
-    try {
-      final r = await _minio.statObject(config.bucket, key);
-      return ObjectMeta(
-        size: r.size ?? -1,
-        etag: r.etag,
-        lastModified: r.lastModified,
+    return _withRetry(() async {
+      final url = await _minio.presignedGetObject(
+        config.bucket,
+        key,
+        expires: 600,
       );
-    } on MinioError catch (e) {
-      throw _mapError('stat $key', e);
-    }
+      final resp = await _http
+          .get(Uri.parse(url), headers: {'range': 'bytes=0-0'})
+          .timeout(const Duration(seconds: 30));
+      if (resp.statusCode == 404 || resp.statusCode == 403) {
+        throw ObjectNotFoundException('$key (${resp.statusCode})');
+      }
+      if (resp.statusCode != 200 && resp.statusCode != 206) {
+        throw ConnectionException('stat $key 返回 ${resp.statusCode}');
+      }
+      var size = resp.contentLength ?? -1;
+      final contentRange = resp.headers['content-range'];
+      if (contentRange != null) {
+        final m = RegExp(r'/(\d+)\s*$').firstMatch(contentRange);
+        if (m != null) size = int.parse(m.group(1)!);
+      }
+      var etag = resp.headers['etag'];
+      if (etag != null) {
+        etag = etag.replaceAll('"', '');
+      }
+      DateTime? lastModified;
+      final lm = resp.headers['last-modified'];
+      if (lm != null) {
+        try {
+          lastModified = HttpDate.parse(lm);
+        } on Object {
+          // 解析失败就留空
+        }
+      }
+      return ObjectMeta(size: size, etag: etag, lastModified: lastModified);
+    });
   }
 
   @override
-  Future<Uint8List> getRange(String key, {int? start, int? end}) async {
+  Future<Uint8List> getRange(
+    String key, {
+    int? start,
+    int? end,
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
     if ((start ?? 0) < 0 || (end != null && end < (start ?? 0))) {
       throw ArgumentError.value('非法区间 [$start, $end)');
     }
@@ -98,7 +156,7 @@ class MinioBucketClient implements BucketClient {
       };
       final resp = await _http
           .get(Uri.parse(url), headers: headers.isEmpty ? null : headers)
-          .timeout(const Duration(seconds: 30));
+          .timeout(timeout);
       if (resp.statusCode == 404 || resp.statusCode == 403) {
         throw ObjectNotFoundException('$key (${resp.statusCode})');
       }
@@ -110,7 +168,8 @@ class MinioBucketClient implements BucketClient {
   }
 
   @override
-  Future<Uint8List> getAll(String key) => getRange(key, start: 0);
+  Future<Uint8List> getAll(String key) =>
+      getRange(key, start: 0, timeout: const Duration(minutes: 5));
 
   @override
   Future<void> put(String key, Uint8List data) async {
@@ -159,6 +218,16 @@ class MinioBucketClient implements BucketClient {
       return keys;
     } on MinioError catch (e) {
       throw _mapError('list $prefix', e);
+    }
+  }
+
+  @override
+  Future<void> delete(String key) async {
+    try {
+      // 删除幂等，网络抖动可直接重试
+      await _withRetry(() => _minio.removeObject(config.bucket, key));
+    } on MinioError catch (e) {
+      throw _mapError('delete $key', e);
     }
   }
 

@@ -24,6 +24,27 @@ void main() {
     test('长度截断到 80', () {
       expect(LibraryPaths.sanitizeSegment('字' * 100).length, 80);
     });
+
+    test('截断不切开 UTF-16 代理对（emoji）', () {
+      // 79 个 ASCII + emoji（2 个 code unit）= 81 unit，截到 80 会切在高代理位
+      expect(LibraryPaths.sanitizeSegment('a' * 79 + '😀'), 'a' * 79);
+    });
+  });
+
+  group('normalizeKey', () {
+    test('无 library/ 前缀的索引 cover 补全前缀', () {
+      expect(
+        LibraryPaths.normalizeKey('小说/佚名/书名/cover.avif'),
+        'library/小说/佚名/书名/cover.avif',
+      );
+    });
+
+    test('已带前缀的保持不变', () {
+      expect(
+        LibraryPaths.normalizeKey('library/小说/佚名/书名/cover.avif'),
+        'library/小说/佚名/书名/cover.avif',
+      );
+    });
   });
 
   group('novel 路径', () {
