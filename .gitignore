@@ -35,3 +35,7 @@ Thumbs.db
 # --- 本地构建产物 ---
 app-debug.apk
 *.apk
+
+# --- compress_worker 构建产物 ---
+tools/compress_worker/build/
+tools/compress_worker/compress_worker

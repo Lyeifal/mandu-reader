@@ -5,6 +5,7 @@ import 'package:drift/drift.dart' hide Column, isNotNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mandu_reader/core/exceptions.dart';
+import 'package:mandu_reader/core/index_merge.dart';
 import 'package:mandu_reader/data/db/app_database.dart';
 import 'package:mandu_reader/features/bucket/bucket_client.dart';
 import 'package:mandu_reader/features/bucket/path_helper.dart';

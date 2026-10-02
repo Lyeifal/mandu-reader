@@ -371,10 +371,7 @@ void main() {
       final after = replayEvents(parseEventsLog(compacted.content).$1);
 
       // 进度：work 集合相同（折叠会重排顺序，按集合比），决胜 ts/loc 一致
-      expect(
-        after.progress.keys.toSet(),
-        before.progress.keys.toSet(),
-      );
+      expect(after.progress.keys.toSet(), before.progress.keys.toSet());
       for (final e in before.progress.entries) {
         expect(after.progress[e.key]!.ts, e.value.ts);
         expect(after.progress[e.key]!.loc.toString(), e.value.loc.toString());

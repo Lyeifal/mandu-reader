@@ -72,6 +72,10 @@ comics&book/
   app/                  # Flutter 工程（根目录名含 &，工程放子目录规避工具链坑）
     lib/{core,data,features}/
     test/
+  pkgs/mandu_core/      # 纯 Dart 核心：桶契约/索引合并/AVIF 策略/重试/works.jsonl 解析
+                        #（App 与 CLI 共用；App 侧原路径已改为 re-export shim，
+                        #  改动实现只动 pkgs/，零 hooks 可在裸 Linux 上 dart compile exe）
+  tools/compress_worker/ # 压缩 Worker CLI（常驻轮询桶索引，自动把原图转 AVIF，见 §14.5）
   docs/design.md        # 本文档
   tools/                # 桌面整理工具（后期，扫 inbox → 转码 → 归档 → 刷索引）
   README.md / AGENTS.md
@@ -428,3 +432,9 @@ settings 表结构：`key TEXT PK, value TEXT, scope TEXT('device'|'synced'), up
 - **两种对比模式**：并排（图底半透明横条标体积）/ 竖线滑动（鼠标移动分割线，左原图右 AVIF，下方显示双方体积与节省比例）；
 - **决定立即生效**：用 AVIF → put + delete 原图；保留原图 → 丢弃候选；跳过 → 下次再审；提供「本作品剩余全保留原图」批量逃生口；
 - 索引回写与云端压缩共用 `rewriteWorkIndex`；决定应用失败留在当前页可重试，中途关闭不丢已生效决定。
+
+### 14.5 压缩 Worker（2026-10-03 增补）
+
+`tools/compress_worker/`：常驻 CLI，把「云端兜底压缩」从 PC 手动任务升级为独立服务。与 §14.2 云端路径**同参数同判定**（crf 45 + worthReplacing），区别只在选目标：读桶里的 works.jsonl 筛 `type=manga && !local_only && !compressed`（桶即真相，不依赖任何设备的 SQLite），逐本下载→转码→判定→替换→回写 `compressed` 标记与派生封面；全 AVIF 的历史作品首轮自动补标。轮询间隔可配（默认 10 分钟），`ONESHOT=1` 可单轮退出。
+
+共享代码在 `pkgs/mandu_core/`（纯 Dart，零 Flutter 依赖与 build hooks）：App 侧对应路径是 re-export shim，实现改动只发生在 pkgs/。部署形态：Linux 单二进制 + systemd（推荐）或 Windows 任务计划；凭证走环境变量，与 App 凭证同一最小权限集。手机/PC 传完原图即可关 App，压缩由常开机器完成——「无服务端」指数据面不经中转，Worker 不存数据不当权威，与设计 §2 的桌面整理工具同角色。

@@ -6,11 +6,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../../core/index_merge.dart';
+import '../../core/page_keys.dart';
 import '../../core/retry.dart';
 import '../../data/db/app_database.dart';
 import '../bucket/bucket_client.dart';
 import '../bucket/path_helper.dart';
 import 'avif_transcoder.dart';
+
+export '../../core/page_keys.dart' show pageKeysOf;
 
 /// 单页压缩结果（重试闭包产出，供进度文案与封面替换取用）。
 class _PageResult {
@@ -46,13 +50,6 @@ class CloudCompressReport {
 
   /// 失败的操作数（下载/转码/传删任一步异常）。
   int failed = 0;
-}
-
-/// 从对象 key 列表挑出三位数字命名的漫画页（cover/chapters 等不算）。
-/// 纯函数，单测对象。
-List<String> pageKeysOf(List<String> keys) {
-  final re = RegExp(r'/(\d{3})\.\w+$');
-  return keys.where(re.hasMatch).toList()..sort();
 }
 
 /// PC 端压缩云端漫画：扫本地书架里所有云端漫画（local_only=false），
@@ -219,7 +216,7 @@ Future<CloudCompressReport> compressCloudMangas({
   return report;
 }
 
-/// 覆写某 id 的索引行（同删除云端的墓碑式重写：滤旧行 + 追加新行）。
+/// 覆写某 id 的索引行（滤旧行 + 追加新行，内容合并走 core 的 mergeIndexLine）。
 /// 云端压缩与人工审阅共用。
 Future<void> rewriteWorkIndex(
   BucketClient client,
@@ -232,38 +229,29 @@ Future<void> rewriteWorkIndex(
     await client.getAll(LibraryPaths.worksIndex),
     allowMalformed: true,
   );
-  final lines =
-      existing.split('\n').where((e) => e.trim().isNotEmpty).where((line) {
-        try {
-          return (jsonDecode(line) as Map)['id'] != work.id;
-        } on Object {
-          return true;
-        }
-      }).toList()..add(
-        jsonEncode({
-          'id': work.id,
-          'type': work.type,
-          'title': work.title,
-          'author': work.author,
-          'series': work.series,
-          'volume': work.volume,
-          'tags': (jsonDecode(work.tags) as List?) ?? const [],
-          'status': work.status,
-          'pages': pageCount,
-          'last_updated': _today(),
-          'cover': coverKey,
-          'origin': work.origin,
-          'local_only': false,
-          'has_zh': work.hasZh,
-          'zh_quality': work.zhQuality,
-          'published_at': work.publishedAt,
-          'completed_at': work.completedAt,
-          'compressed': compressed,
-        }),
-      );
+  final entry = <String, Object?>{
+    'id': work.id,
+    'type': work.type,
+    'title': work.title,
+    'author': work.author,
+    'series': work.series,
+    'volume': work.volume,
+    'tags': (jsonDecode(work.tags) as List?) ?? const [],
+    'status': work.status,
+    'pages': pageCount,
+    'last_updated': _today(),
+    'cover': coverKey,
+    'origin': work.origin,
+    'local_only': false,
+    'has_zh': work.hasZh,
+    'zh_quality': work.zhQuality,
+    'published_at': work.publishedAt,
+    'completed_at': work.completedAt,
+    'compressed': compressed,
+  };
   await client.put(
     LibraryPaths.worksIndex,
-    Uint8List.fromList(utf8.encode('${lines.join('\n')}\n')),
+    Uint8List.fromList(utf8.encode(mergeIndexLine(existing, entry))),
   );
 }
 

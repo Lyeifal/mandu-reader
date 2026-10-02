@@ -40,6 +40,10 @@ dependencies:
   epubx: ^4.0.0
   image: ^3.3.0
   local_auth: ^3.0.2
+
+  # 纯 Dart 核心（桶契约/索引合并/AVIF 策略/重试），实现见 ../pkgs/mandu_core
+  mandu_core:
+    path: ../pkgs/mandu_core
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -1,0 +1,17 @@
+name: mandu_core
+description: >-
+  漫读的纯 Dart 核心：重试、异常、桶路径契约、对象列举/索引合并、
+  AVIF 转码策略、S3 兼容客户端、works.jsonl 解析。
+  供 Flutter App（经 re-export shim）与 compress_worker CLI 共用，
+  不含任何 Flutter 依赖与 build hooks，可在裸 Linux 上
+  `dart pub get && dart compile exe`。
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.13.4
+
+dependencies:
+  http: ^1.6.0
+  minio: ^3.5.8
+  path: ^1.9.1

@@ -42,6 +42,45 @@ cd /z/app && flutter build apk --debug
 
 调试日志：`adb logcat | grep flutter`。真机已验证：Redmi K60 Pro（Android 14）。
 
+## 压缩 Worker（可选，独立部署）
+
+桶里未压成 AVIF 的漫画页面由常驻 Worker 自动兜底——手机/PC 传完原图即可关掉 App，压缩在服务端完成，与 Flutter 端生命周期无关。纯 Dart 单二进制（复用 `pkgs/mandu_core`，无 Flutter、无 build hooks），宿主只需装 ffmpeg。
+
+构建（dart2native 不跨平台，在目标机器上编译）：
+
+```bash
+cd tools/compress_worker
+dart pub get
+dart compile exe bin/compress_worker.dart -o compress_worker   # 产物约 7MB
+```
+
+环境变量（前四个必填）：
+
+```
+BUCKET_ENDPOINT   BUCKET_NAME   BUCKET_AK   BUCKET_SK
+BUCKET_REGION（可空）  BUCKET_PORT（可空）  BUCKET_SSL（默认 true）
+FFMPEG（默认从 PATH 找）  INTERVAL_MINUTES（默认 10）  ONESHOT=1（只跑一轮即退）
+```
+
+Linux 服务器用 systemd 常驻（推荐 NAS/常开机器；VPS 注意出入桶流量费）：
+
+```ini
+[Unit]
+Description=mindu compress worker
+After=network-online.target
+
+[Service]
+EnvironmentFile=/etc/mindu/worker.env    # 环境变量写这里，chmod 600
+ExecStart=/opt/mindu/compress_worker
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Windows 则配任务计划程序（登录时启动）或手动 `ONESHOT=1` 跑。Worker 选目标靠索引行的 `compressed` 标记，首次运行会把全 AVIF 的历史作品补标并跳过。
+
 ## 本机工具链状态
 
 | 工具 | 状态 |

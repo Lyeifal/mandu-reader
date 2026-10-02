@@ -1,0 +1,14 @@
+name: compress_worker
+description: >-
+  漫读压缩 Worker：轮询桶索引，把未压缩的云端漫画页面转 AVIF。
+  常驻部署（systemd / 任务计划程序），或 ONESHOT=1 手动跑一轮。
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.13.4
+
+dependencies:
+  mandu_core:
+    path: ../../pkgs/mandu_core
+  path: ^1.9.1

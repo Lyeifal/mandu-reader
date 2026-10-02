@@ -62,4 +62,38 @@ not-json
       expect(r.badLines, isEmpty);
     });
   });
+
+  group('selectCompressTargets（压缩 Worker 选目标）', () {
+    WorksIndexEntry entry(
+      String id, {
+      String type = 'manga',
+      bool localOnly = false,
+      bool compressed = false,
+    }) => WorksIndexEntry(
+      id: id,
+      type: type,
+      title: id,
+      localOnly: localOnly,
+      compressed: compressed,
+    );
+
+    test('只选云端且未标 compressed 的漫画', () {
+      final out = selectCompressTargets([
+        entry('a'), // 待压
+        entry('b', compressed: true), // 已压
+        entry('c', localOnly: true), // 本地作品不进桶
+        entry('d', type: 'novel'), // 小说无页面压缩
+      ]);
+      expect(out.map((e) => e.id), ['a']);
+    });
+
+    test('compressed 字段解析：缺省 false，显式 true 识别', () {
+      final r = parseWorksIndex(
+        '{"id":"m1","type":"manga","title":"t"}\n'
+        '{"id":"m2","type":"manga","title":"t","compressed":true}\n',
+      );
+      expect(r.entries[0].compressed, isFalse);
+      expect(r.entries[1].compressed, isTrue);
+    });
+  });
 }
