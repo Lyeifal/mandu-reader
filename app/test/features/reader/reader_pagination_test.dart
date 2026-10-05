@@ -51,6 +51,62 @@ void main() {
       expect(pages.pageOfPara(2), 1);
       expect(pages.pageOfPara(9), pages.length - 1);
     });
+
+    test('章起始段落强制另起新页：章标题不跟在上一章尾行后', () {
+      // 每段 1 行、每页 5 行；p4 是章起始但上一页只装了 4 行（没满）
+      final paras = ['第一章', '甲', '乙', '丙', '第二章', '丁'];
+      final pages = paginateNovel(
+        paras,
+        contentWidth: 60,
+        contentHeight: 100, // 5 行/页
+        fontSize: 10,
+        chapterStarts: {0, 4},
+      );
+      expect(pages.pages[0], ['第一章', '甲', '乙', '丙']);
+      expect(pages.pages[1].first, '第二章');
+      // 章标题行被标记（页内行下标）
+      expect(pages.titleMasks[0], {0});
+      expect(pages.titleMasks[1], {0});
+    });
+
+    test('首段即章起始不产生前置空页；无章节信息行为与旧版一致', () {
+      final paras = ['第一章', '正文段落'];
+      final pages = paginateNovel(
+        paras,
+        contentWidth: 60,
+        contentHeight: 100,
+        fontSize: 10,
+        chapterStarts: {0},
+      );
+      expect(pages.pages.first.first, '第一章');
+      expect(pages.length, 1);
+
+      final plain = paginateNovel(
+        paras,
+        contentWidth: 60,
+        contentHeight: 100,
+        fontSize: 10,
+      );
+      expect(plain.pages, pages.pages);
+      expect(plain.titleMasks.every((m) => m.isEmpty), isTrue);
+    });
+
+    test('超长章节跨页后，下一章仍另起新页', () {
+      // 第一章正文 'a'*500 ≈ 28 行（每行 18 字符），跨 6 页；
+      // 第二章应另起新页且在页首
+      final paras = ['第一章', 'a' * 500, '第二章', '尾巴'];
+      final pages = paginateNovel(
+        paras,
+        contentWidth: 100,
+        contentHeight: 100, // 5 行/页
+        fontSize: 10,
+        chapterStarts: {0, 2},
+      );
+      expect(pages.pages.length, greaterThan(2));
+      expect(pages.pages[pages.length - 2].first, isNot('第二章'));
+      expect(pages.pages.last.first, '第二章');
+      expect(pages.titleMasks.last, {0});
+    });
   });
 
   group('deriveChapters', () {

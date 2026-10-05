@@ -10,6 +10,7 @@ import '../../data/db/app_database.dart';
 import '../bucket/path_helper.dart';
 import '../downloader/jm_pipeline.dart';
 import '../providers.dart';
+import 'fts_helper.dart';
 
 /// 标签组合逻辑：与（全含）/ 或（任一）/ 非（全不含）。
 enum TagMode { and, or, not }
@@ -191,7 +192,7 @@ final shelfQueryProvider = Provider<(ShelfFilter, int, int)>(
 /// ESCAPE 子句，直接剔除，避免 `100%` 这类输入意外全匹配）。
 String _likeLiteral(String s) => s.replaceAll(RegExp('[%_]'), '');
 
-Expression<bool>? _where($WorksTable t, ShelfFilter f) {
+Expression<bool>? _where($WorksTable t, ShelfFilter f, Set<String>? ftsIds) {
   final conds = <Expression<bool>>[];
   if (f.type.isNotEmpty) conds.add(t.type.equals(f.type));
   if (f.type == 'novel' && f.novelCat.isNotEmpty) {
@@ -249,12 +250,17 @@ Expression<bool>? _where($WorksTable t, ShelfFilter f) {
   final q = _likeLiteral(f.query.trim());
   if (q.isNotEmpty) {
     final like = '%$q%';
-    conds.add(
-      t.title.like(like) |
-          t.titleJp.like(like) |
-          t.author.like(like) |
-          t.series.like(like),
-    );
+    final likeConds =
+        t.title.like(like) |
+        t.titleJp.like(like) |
+        t.author.like(like) |
+        t.series.like(like);
+    // FTS 命中 ∪ LIKE 并集：FTS 覆盖 tags 列且走索引；LIKE 兜底无 fts 行的旧数据
+    if (ftsIds != null && ftsIds.isNotEmpty) {
+      conds.add(t.id.isIn(ftsIds) | likeConds);
+    } else {
+      conds.add(likeConds);
+    }
   }
   if (conds.isEmpty) return null;
   var e = conds.first;
@@ -271,12 +277,30 @@ List<OrderClauseGenerator<$WorksTable>> _orderBy(ShelfSort sort) =>
       ShelfSort.title => [(t) => OrderingTerm.asc(t.title)],
     };
 
+/// FTS 命中的作品 id 集；null = 走纯 LIKE（查询词不足 3 字符或 FTS 异常）。
+Future<Set<String>?> _ftsIds(AppDatabase db, String rawQuery) async {
+  final match = ftsQuery(rawQuery);
+  if (match == null) return null;
+  try {
+    final rows = await db
+        .customSelect(
+          'SELECT id FROM works_fts WHERE works_fts MATCH ?',
+          variables: [Variable(match)],
+        )
+        .get();
+    return {for (final r in rows) r.read<String>('id')};
+  } on Object {
+    return null;
+  }
+}
+
 Future<List<Work>> _runQuery(
   AppDatabase db,
   (ShelfFilter, int, int) key,
 ) async {
   final (filter, page, pageSize) = key;
-  final w = _where(db.works, filter);
+  final fts = await _ftsIds(db, filter.query);
+  final w = _where(db.works, filter, fts);
   final q = db.select(db.works)
     ..orderBy(_orderBy(filter.sort))
     ..limit(pageSize, offset: (page - 1) * pageSize);
@@ -323,7 +347,8 @@ final shelfWorksProvider =
 final shelfTotalProvider = FutureProvider<int>((ref) async {
   final filter = ref.watch(shelfFilterProvider);
   final db = ref.watch(appDatabaseProvider);
-  final w = _where(db.works, filter);
+  final fts = await _ftsIds(db, filter.query);
+  final w = _where(db.works, filter, fts);
   final q = db.selectOnly(db.works)..addColumns([db.works.id.count()]);
   if (w != null) q.where(w);
   final row = await q.getSingle();

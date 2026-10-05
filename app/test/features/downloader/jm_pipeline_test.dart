@@ -16,6 +16,11 @@ import 'package:path/path.dart' as p;
 class _FakeBucketClient implements BucketClient {
   final objects = <String, Uint8List>{};
 
+  /// put 延迟与在飞统计：验证上传并发度（串行实现 maxInFlight 恒为 1）。
+  Duration putDelay = Duration.zero;
+  var inFlight = 0;
+  var maxInFlight = 0;
+
   void seed(String key, String content) {
     objects[key] = Uint8List.fromList(utf8.encode(content));
   }
@@ -45,7 +50,14 @@ class _FakeBucketClient implements BucketClient {
 
   @override
   Future<void> put(String key, Uint8List data) async {
-    objects[key] = data;
+    inFlight++;
+    if (inFlight > maxInFlight) maxInFlight = inFlight;
+    try {
+      if (putDelay > Duration.zero) await Future<void>.delayed(putDelay);
+      objects[key] = data;
+    } finally {
+      inFlight--;
+    }
   }
 
   @override
@@ -145,6 +157,11 @@ void main() {
     });
 
     test('book.txt/封面/章节表传桶，索引行带 total_chars，行转非本地', () async {
+      // 预置云端阅读缓存：上传成功后应被失效（清目录），下次打开重拉
+      final cacheDir = Directory(p.join(root.path, '_novel_cache', 'novel_1'))
+        ..createSync(recursive: true);
+      File(p.join(cacheDir.path, 'book.txt')).writeAsStringSync('旧缓存内容');
+
       final pipeline = JmPipeline(localRoot: root.path);
       await pipeline.uploadNovel(
         db: db,
@@ -159,6 +176,7 @@ void main() {
       expect(client.objects.containsKey('$dir/book.txt'), isTrue);
       expect(client.objects.containsKey('$dir/cover.jpg'), isTrue);
       expect(client.objects.containsKey('$dir/chapters.json'), isTrue);
+      expect(cacheDir.existsSync(), isFalse);
 
       final indexLines = utf8
           .decode(client.objects[LibraryPaths.worksIndex]!)
@@ -196,6 +214,96 @@ void main() {
         utf8.decode(client.objects[LibraryPaths.worksIndex]!).trim(),
         isEmpty,
       );
+    });
+  });
+
+  group('upload（漫画页面并发上传）', () {
+    late AppDatabase db;
+    late _FakeBucketClient client;
+    late Directory root;
+
+    const pageCount = 8;
+
+    const workRow = WorksCompanion(
+      id: Value('manga_1'),
+      type: Value('manga'),
+      title: Value('测试漫'),
+      author: Value('作者乙'),
+      tags: Value('[]'),
+      status: Value('completed'),
+      localOnly: Value(true),
+      origin: Value('manual'),
+    );
+
+    setUp(() async {
+      db = AppDatabase(NativeDatabase.memory());
+      client = _FakeBucketClient()
+        ..putDelay = const Duration(milliseconds: 5)
+        ..seed(LibraryPaths.worksIndex, '\n');
+      root = await Directory.systemTemp.createTemp('mandu_upload');
+      final dir = Directory(p.join(root.path, 'manga_1'))
+        ..createSync(recursive: true);
+      for (var i = 1; i <= pageCount; i++) {
+        File(p.join(dir.path, '${i.toString().padLeft(3, '0')}.jpg'))
+            .writeAsBytesSync(List.filled(32, i));
+      }
+      await db.into(db.works).insert(workRow);
+    });
+
+    tearDown(() async {
+      await db.close();
+      if (await root.exists()) await root.delete(recursive: true);
+    });
+
+    test('页面+cover 传桶、索引行写 pages、行转非本地；并发有界且生效', () async {
+      final phases = <String>[];
+      final pipeline = JmPipeline(localRoot: root.path);
+      final bucketDir = await pipeline.upload(
+        db: db,
+        client: client,
+        work: await (db.select(
+          db.works,
+        )..where((t) => t.id.equals('manga_1'))).getSingle(),
+        onProgress: phases.add,
+      );
+
+      // 每页内容按序落桶 + 封面 = 第一页
+      for (var i = 1; i <= pageCount; i++) {
+        expect(
+          client.objects[LibraryPaths.mangaPage(bucketDir, i, ext: 'jpg')],
+          List.filled(32, i),
+        );
+      }
+      expect(client.objects['$bucketDir/cover.jpg'], List.filled(32, 1));
+
+      final entry = jsonDecode(
+        utf8.decode(client.objects[LibraryPaths.worksIndex]!).trim(),
+      ) as Map<String, dynamic>;
+      expect(entry['id'], 'manga_1');
+      expect(entry['pages'], pageCount);
+      expect(entry['local_only'], isFalse);
+      expect(entry['compressed'], isFalse); // 原图 jpg 未压
+      expect(entry['cover'], '$bucketDir/cover.jpg');
+
+      final row = await (db.select(
+        db.works,
+      )..where((t) => t.id.equals('manga_1'))).getSingle();
+      expect(row.localOnly, isFalse);
+      expect(row.cover, '$bucketDir/cover.jpg');
+
+      // 并发回归防线：串行实现 maxInFlight 恒为 1；放开并发则封顶 uploadConcurrency
+      expect(client.maxInFlight, greaterThan(1));
+      expect(
+        client.maxInFlight,
+        lessThanOrEqualTo(JmPipeline.uploadConcurrency),
+      );
+
+      // 进度按完成数 1..N 各报一次（乱序完成，按集合比）
+      final reported = phases
+          .where((m) => m.startsWith('上传 ') && m.endsWith(' 到桶…'))
+          .map((m) => int.parse(m.split(' ')[1].split('/').first))
+          .toSet();
+      expect(reported, {for (var i = 1; i <= pageCount; i++) i});
     });
   });
 }

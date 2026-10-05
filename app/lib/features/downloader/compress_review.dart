@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:drift/drift.dart' hide Column;
@@ -163,7 +164,8 @@ class _CompressReviewDialogState extends ConsumerState<CompressReviewDialog> {
   void dispose() {
     final tmp = _tmp;
     if (tmp != null && tmp.existsSync()) {
-      tmp.deleteSync(recursive: true);
+      // 异步删：同步递归删目录会卡一帧；残留目录由启动修剪兜底
+      unawaited(tmp.delete(recursive: true).then((_) {}, onError: (_) {}));
     }
     super.dispose();
   }

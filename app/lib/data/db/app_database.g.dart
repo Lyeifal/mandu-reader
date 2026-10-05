@@ -2556,6 +2556,1757 @@ class SyncStateCompanion extends UpdateCompanion<SyncStateData> {
   }
 }
 
+class $JmTasksTable extends JmTasks with TableInfo<$JmTasksTable, JmTaskRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $JmTasksTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _albumIdMeta = const VerificationMeta(
+    'albumId',
+  );
+  @override
+  late final GeneratedColumn<String> albumId = GeneratedColumn<String>(
+    'album_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _titleMeta = const VerificationMeta('title');
+  @override
+  late final GeneratedColumn<String> title = GeneratedColumn<String>(
+    'title',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _statusMeta = const VerificationMeta('status');
+  @override
+  late final GeneratedColumn<String> status = GeneratedColumn<String>(
+    'status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _phaseMeta = const VerificationMeta('phase');
+  @override
+  late final GeneratedColumn<String> phase = GeneratedColumn<String>(
+    'phase',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _errorMeta = const VerificationMeta('error');
+  @override
+  late final GeneratedColumn<String> error = GeneratedColumn<String>(
+    'error',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _pagesMeta = const VerificationMeta('pages');
+  @override
+  late final GeneratedColumn<int> pages = GeneratedColumn<int>(
+    'pages',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _keptOriginalMeta = const VerificationMeta(
+    'keptOriginal',
+  );
+  @override
+  late final GeneratedColumn<int> keptOriginal = GeneratedColumn<int>(
+    'kept_original',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _ffmpegPathMeta = const VerificationMeta(
+    'ffmpegPath',
+  );
+  @override
+  late final GeneratedColumn<String> ffmpegPath = GeneratedColumn<String>(
+    'ffmpeg_path',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _proxyMeta = const VerificationMeta('proxy');
+  @override
+  late final GeneratedColumn<String> proxy = GeneratedColumn<String>(
+    'proxy',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    albumId,
+    title,
+    status,
+    phase,
+    error,
+    pages,
+    keptOriginal,
+    ffmpegPath,
+    proxy,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'jm_tasks';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<JmTaskRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('album_id')) {
+      context.handle(
+        _albumIdMeta,
+        albumId.isAcceptableOrUnknown(data['album_id']!, _albumIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_albumIdMeta);
+    }
+    if (data.containsKey('title')) {
+      context.handle(
+        _titleMeta,
+        title.isAcceptableOrUnknown(data['title']!, _titleMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_titleMeta);
+    }
+    if (data.containsKey('status')) {
+      context.handle(
+        _statusMeta,
+        status.isAcceptableOrUnknown(data['status']!, _statusMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_statusMeta);
+    }
+    if (data.containsKey('phase')) {
+      context.handle(
+        _phaseMeta,
+        phase.isAcceptableOrUnknown(data['phase']!, _phaseMeta),
+      );
+    }
+    if (data.containsKey('error')) {
+      context.handle(
+        _errorMeta,
+        error.isAcceptableOrUnknown(data['error']!, _errorMeta),
+      );
+    }
+    if (data.containsKey('pages')) {
+      context.handle(
+        _pagesMeta,
+        pages.isAcceptableOrUnknown(data['pages']!, _pagesMeta),
+      );
+    }
+    if (data.containsKey('kept_original')) {
+      context.handle(
+        _keptOriginalMeta,
+        keptOriginal.isAcceptableOrUnknown(
+          data['kept_original']!,
+          _keptOriginalMeta,
+        ),
+      );
+    }
+    if (data.containsKey('ffmpeg_path')) {
+      context.handle(
+        _ffmpegPathMeta,
+        ffmpegPath.isAcceptableOrUnknown(data['ffmpeg_path']!, _ffmpegPathMeta),
+      );
+    }
+    if (data.containsKey('proxy')) {
+      context.handle(
+        _proxyMeta,
+        proxy.isAcceptableOrUnknown(data['proxy']!, _proxyMeta),
+      );
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {albumId};
+  @override
+  JmTaskRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return JmTaskRow(
+      albumId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}album_id'],
+      )!,
+      title: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}title'],
+      )!,
+      status: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}status'],
+      )!,
+      phase: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}phase'],
+      )!,
+      error: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}error'],
+      ),
+      pages: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}pages'],
+      ),
+      keptOriginal: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}kept_original'],
+      ),
+      ffmpegPath: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}ffmpeg_path'],
+      )!,
+      proxy: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}proxy'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $JmTasksTable createAlias(String alias) {
+    return $JmTasksTable(attachedDatabase, alias);
+  }
+}
+
+class JmTaskRow extends DataClass implements Insertable<JmTaskRow> {
+  final String albumId;
+  final String title;
+  final String status;
+  final String phase;
+  final String? error;
+  final int? pages;
+  final int? keptOriginal;
+
+  /// 启动时的配置快照（恢复续跑/重试用）。
+  final String ffmpegPath;
+  final String proxy;
+  final DateTime updatedAt;
+  const JmTaskRow({
+    required this.albumId,
+    required this.title,
+    required this.status,
+    required this.phase,
+    this.error,
+    this.pages,
+    this.keptOriginal,
+    required this.ffmpegPath,
+    required this.proxy,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['album_id'] = Variable<String>(albumId);
+    map['title'] = Variable<String>(title);
+    map['status'] = Variable<String>(status);
+    map['phase'] = Variable<String>(phase);
+    if (!nullToAbsent || error != null) {
+      map['error'] = Variable<String>(error);
+    }
+    if (!nullToAbsent || pages != null) {
+      map['pages'] = Variable<int>(pages);
+    }
+    if (!nullToAbsent || keptOriginal != null) {
+      map['kept_original'] = Variable<int>(keptOriginal);
+    }
+    map['ffmpeg_path'] = Variable<String>(ffmpegPath);
+    map['proxy'] = Variable<String>(proxy);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  JmTasksCompanion toCompanion(bool nullToAbsent) {
+    return JmTasksCompanion(
+      albumId: Value(albumId),
+      title: Value(title),
+      status: Value(status),
+      phase: Value(phase),
+      error: error == null && nullToAbsent
+          ? const Value.absent()
+          : Value(error),
+      pages: pages == null && nullToAbsent
+          ? const Value.absent()
+          : Value(pages),
+      keptOriginal: keptOriginal == null && nullToAbsent
+          ? const Value.absent()
+          : Value(keptOriginal),
+      ffmpegPath: Value(ffmpegPath),
+      proxy: Value(proxy),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory JmTaskRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return JmTaskRow(
+      albumId: serializer.fromJson<String>(json['albumId']),
+      title: serializer.fromJson<String>(json['title']),
+      status: serializer.fromJson<String>(json['status']),
+      phase: serializer.fromJson<String>(json['phase']),
+      error: serializer.fromJson<String?>(json['error']),
+      pages: serializer.fromJson<int?>(json['pages']),
+      keptOriginal: serializer.fromJson<int?>(json['keptOriginal']),
+      ffmpegPath: serializer.fromJson<String>(json['ffmpegPath']),
+      proxy: serializer.fromJson<String>(json['proxy']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'albumId': serializer.toJson<String>(albumId),
+      'title': serializer.toJson<String>(title),
+      'status': serializer.toJson<String>(status),
+      'phase': serializer.toJson<String>(phase),
+      'error': serializer.toJson<String?>(error),
+      'pages': serializer.toJson<int?>(pages),
+      'keptOriginal': serializer.toJson<int?>(keptOriginal),
+      'ffmpegPath': serializer.toJson<String>(ffmpegPath),
+      'proxy': serializer.toJson<String>(proxy),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  JmTaskRow copyWith({
+    String? albumId,
+    String? title,
+    String? status,
+    String? phase,
+    Value<String?> error = const Value.absent(),
+    Value<int?> pages = const Value.absent(),
+    Value<int?> keptOriginal = const Value.absent(),
+    String? ffmpegPath,
+    String? proxy,
+    DateTime? updatedAt,
+  }) => JmTaskRow(
+    albumId: albumId ?? this.albumId,
+    title: title ?? this.title,
+    status: status ?? this.status,
+    phase: phase ?? this.phase,
+    error: error.present ? error.value : this.error,
+    pages: pages.present ? pages.value : this.pages,
+    keptOriginal: keptOriginal.present ? keptOriginal.value : this.keptOriginal,
+    ffmpegPath: ffmpegPath ?? this.ffmpegPath,
+    proxy: proxy ?? this.proxy,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  JmTaskRow copyWithCompanion(JmTasksCompanion data) {
+    return JmTaskRow(
+      albumId: data.albumId.present ? data.albumId.value : this.albumId,
+      title: data.title.present ? data.title.value : this.title,
+      status: data.status.present ? data.status.value : this.status,
+      phase: data.phase.present ? data.phase.value : this.phase,
+      error: data.error.present ? data.error.value : this.error,
+      pages: data.pages.present ? data.pages.value : this.pages,
+      keptOriginal: data.keptOriginal.present
+          ? data.keptOriginal.value
+          : this.keptOriginal,
+      ffmpegPath: data.ffmpegPath.present
+          ? data.ffmpegPath.value
+          : this.ffmpegPath,
+      proxy: data.proxy.present ? data.proxy.value : this.proxy,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('JmTaskRow(')
+          ..write('albumId: $albumId, ')
+          ..write('title: $title, ')
+          ..write('status: $status, ')
+          ..write('phase: $phase, ')
+          ..write('error: $error, ')
+          ..write('pages: $pages, ')
+          ..write('keptOriginal: $keptOriginal, ')
+          ..write('ffmpegPath: $ffmpegPath, ')
+          ..write('proxy: $proxy, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    albumId,
+    title,
+    status,
+    phase,
+    error,
+    pages,
+    keptOriginal,
+    ffmpegPath,
+    proxy,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is JmTaskRow &&
+          other.albumId == this.albumId &&
+          other.title == this.title &&
+          other.status == this.status &&
+          other.phase == this.phase &&
+          other.error == this.error &&
+          other.pages == this.pages &&
+          other.keptOriginal == this.keptOriginal &&
+          other.ffmpegPath == this.ffmpegPath &&
+          other.proxy == this.proxy &&
+          other.updatedAt == this.updatedAt);
+}
+
+class JmTasksCompanion extends UpdateCompanion<JmTaskRow> {
+  final Value<String> albumId;
+  final Value<String> title;
+  final Value<String> status;
+  final Value<String> phase;
+  final Value<String?> error;
+  final Value<int?> pages;
+  final Value<int?> keptOriginal;
+  final Value<String> ffmpegPath;
+  final Value<String> proxy;
+  final Value<DateTime> updatedAt;
+  final Value<int> rowid;
+  const JmTasksCompanion({
+    this.albumId = const Value.absent(),
+    this.title = const Value.absent(),
+    this.status = const Value.absent(),
+    this.phase = const Value.absent(),
+    this.error = const Value.absent(),
+    this.pages = const Value.absent(),
+    this.keptOriginal = const Value.absent(),
+    this.ffmpegPath = const Value.absent(),
+    this.proxy = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  JmTasksCompanion.insert({
+    required String albumId,
+    required String title,
+    required String status,
+    this.phase = const Value.absent(),
+    this.error = const Value.absent(),
+    this.pages = const Value.absent(),
+    this.keptOriginal = const Value.absent(),
+    this.ffmpegPath = const Value.absent(),
+    this.proxy = const Value.absent(),
+    required DateTime updatedAt,
+    this.rowid = const Value.absent(),
+  }) : albumId = Value(albumId),
+       title = Value(title),
+       status = Value(status),
+       updatedAt = Value(updatedAt);
+  static Insertable<JmTaskRow> custom({
+    Expression<String>? albumId,
+    Expression<String>? title,
+    Expression<String>? status,
+    Expression<String>? phase,
+    Expression<String>? error,
+    Expression<int>? pages,
+    Expression<int>? keptOriginal,
+    Expression<String>? ffmpegPath,
+    Expression<String>? proxy,
+    Expression<DateTime>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (albumId != null) 'album_id': albumId,
+      if (title != null) 'title': title,
+      if (status != null) 'status': status,
+      if (phase != null) 'phase': phase,
+      if (error != null) 'error': error,
+      if (pages != null) 'pages': pages,
+      if (keptOriginal != null) 'kept_original': keptOriginal,
+      if (ffmpegPath != null) 'ffmpeg_path': ffmpegPath,
+      if (proxy != null) 'proxy': proxy,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  JmTasksCompanion copyWith({
+    Value<String>? albumId,
+    Value<String>? title,
+    Value<String>? status,
+    Value<String>? phase,
+    Value<String?>? error,
+    Value<int?>? pages,
+    Value<int?>? keptOriginal,
+    Value<String>? ffmpegPath,
+    Value<String>? proxy,
+    Value<DateTime>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return JmTasksCompanion(
+      albumId: albumId ?? this.albumId,
+      title: title ?? this.title,
+      status: status ?? this.status,
+      phase: phase ?? this.phase,
+      error: error ?? this.error,
+      pages: pages ?? this.pages,
+      keptOriginal: keptOriginal ?? this.keptOriginal,
+      ffmpegPath: ffmpegPath ?? this.ffmpegPath,
+      proxy: proxy ?? this.proxy,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (albumId.present) {
+      map['album_id'] = Variable<String>(albumId.value);
+    }
+    if (title.present) {
+      map['title'] = Variable<String>(title.value);
+    }
+    if (status.present) {
+      map['status'] = Variable<String>(status.value);
+    }
+    if (phase.present) {
+      map['phase'] = Variable<String>(phase.value);
+    }
+    if (error.present) {
+      map['error'] = Variable<String>(error.value);
+    }
+    if (pages.present) {
+      map['pages'] = Variable<int>(pages.value);
+    }
+    if (keptOriginal.present) {
+      map['kept_original'] = Variable<int>(keptOriginal.value);
+    }
+    if (ffmpegPath.present) {
+      map['ffmpeg_path'] = Variable<String>(ffmpegPath.value);
+    }
+    if (proxy.present) {
+      map['proxy'] = Variable<String>(proxy.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('JmTasksCompanion(')
+          ..write('albumId: $albumId, ')
+          ..write('title: $title, ')
+          ..write('status: $status, ')
+          ..write('phase: $phase, ')
+          ..write('error: $error, ')
+          ..write('pages: $pages, ')
+          ..write('keptOriginal: $keptOriginal, ')
+          ..write('ffmpegPath: $ffmpegPath, ')
+          ..write('proxy: $proxy, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $NovelSourcesTable extends NovelSources
+    with TableInfo<$NovelSourcesTable, NovelSource> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $NovelSourcesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _sourceIdMeta = const VerificationMeta(
+    'sourceId',
+  );
+  @override
+  late final GeneratedColumn<String> sourceId = GeneratedColumn<String>(
+    'source_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _jsonMeta = const VerificationMeta('json');
+  @override
+  late final GeneratedColumn<String> json = GeneratedColumn<String>(
+    'json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _enabledMeta = const VerificationMeta(
+    'enabled',
+  );
+  @override
+  late final GeneratedColumn<bool> enabled = GeneratedColumn<bool>(
+    'enabled',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("enabled" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
+  static const VerificationMeta _disableReasonMeta = const VerificationMeta(
+    'disableReason',
+  );
+  @override
+  late final GeneratedColumn<String> disableReason = GeneratedColumn<String>(
+    'disable_reason',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _lastTestResultMeta = const VerificationMeta(
+    'lastTestResult',
+  );
+  @override
+  late final GeneratedColumn<String> lastTestResult = GeneratedColumn<String>(
+    'last_test_result',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _lastTestedAtMeta = const VerificationMeta(
+    'lastTestedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> lastTestedAt = GeneratedColumn<DateTime>(
+    'last_tested_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    sourceId,
+    name,
+    json,
+    enabled,
+    disableReason,
+    lastTestResult,
+    lastTestedAt,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'novel_sources';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<NovelSource> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('source_id')) {
+      context.handle(
+        _sourceIdMeta,
+        sourceId.isAcceptableOrUnknown(data['source_id']!, _sourceIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_sourceIdMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('json')) {
+      context.handle(
+        _jsonMeta,
+        json.isAcceptableOrUnknown(data['json']!, _jsonMeta),
+      );
+    }
+    if (data.containsKey('enabled')) {
+      context.handle(
+        _enabledMeta,
+        enabled.isAcceptableOrUnknown(data['enabled']!, _enabledMeta),
+      );
+    }
+    if (data.containsKey('disable_reason')) {
+      context.handle(
+        _disableReasonMeta,
+        disableReason.isAcceptableOrUnknown(
+          data['disable_reason']!,
+          _disableReasonMeta,
+        ),
+      );
+    }
+    if (data.containsKey('last_test_result')) {
+      context.handle(
+        _lastTestResultMeta,
+        lastTestResult.isAcceptableOrUnknown(
+          data['last_test_result']!,
+          _lastTestResultMeta,
+        ),
+      );
+    }
+    if (data.containsKey('last_tested_at')) {
+      context.handle(
+        _lastTestedAtMeta,
+        lastTestedAt.isAcceptableOrUnknown(
+          data['last_tested_at']!,
+          _lastTestedAtMeta,
+        ),
+      );
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {sourceId};
+  @override
+  NovelSource map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return NovelSource(
+      sourceId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source_id'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      )!,
+      json: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}json'],
+      )!,
+      enabled: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}enabled'],
+      )!,
+      disableReason: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}disable_reason'],
+      )!,
+      lastTestResult: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}last_test_result'],
+      )!,
+      lastTestedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}last_tested_at'],
+      ),
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $NovelSourcesTable createAlias(String alias) {
+    return $NovelSourcesTable(attachedDatabase, alias);
+  }
+}
+
+class NovelSource extends DataClass implements Insertable<NovelSource> {
+  final String sourceId;
+  final String name;
+  final String json;
+  final bool enabled;
+  final String disableReason;
+  final String lastTestResult;
+  final DateTime? lastTestedAt;
+  final DateTime updatedAt;
+  const NovelSource({
+    required this.sourceId,
+    required this.name,
+    required this.json,
+    required this.enabled,
+    required this.disableReason,
+    required this.lastTestResult,
+    this.lastTestedAt,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['source_id'] = Variable<String>(sourceId);
+    map['name'] = Variable<String>(name);
+    map['json'] = Variable<String>(json);
+    map['enabled'] = Variable<bool>(enabled);
+    map['disable_reason'] = Variable<String>(disableReason);
+    map['last_test_result'] = Variable<String>(lastTestResult);
+    if (!nullToAbsent || lastTestedAt != null) {
+      map['last_tested_at'] = Variable<DateTime>(lastTestedAt);
+    }
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  NovelSourcesCompanion toCompanion(bool nullToAbsent) {
+    return NovelSourcesCompanion(
+      sourceId: Value(sourceId),
+      name: Value(name),
+      json: Value(json),
+      enabled: Value(enabled),
+      disableReason: Value(disableReason),
+      lastTestResult: Value(lastTestResult),
+      lastTestedAt: lastTestedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastTestedAt),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory NovelSource.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return NovelSource(
+      sourceId: serializer.fromJson<String>(json['sourceId']),
+      name: serializer.fromJson<String>(json['name']),
+      json: serializer.fromJson<String>(json['json']),
+      enabled: serializer.fromJson<bool>(json['enabled']),
+      disableReason: serializer.fromJson<String>(json['disableReason']),
+      lastTestResult: serializer.fromJson<String>(json['lastTestResult']),
+      lastTestedAt: serializer.fromJson<DateTime?>(json['lastTestedAt']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'sourceId': serializer.toJson<String>(sourceId),
+      'name': serializer.toJson<String>(name),
+      'json': serializer.toJson<String>(json),
+      'enabled': serializer.toJson<bool>(enabled),
+      'disableReason': serializer.toJson<String>(disableReason),
+      'lastTestResult': serializer.toJson<String>(lastTestResult),
+      'lastTestedAt': serializer.toJson<DateTime?>(lastTestedAt),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  NovelSource copyWith({
+    String? sourceId,
+    String? name,
+    String? json,
+    bool? enabled,
+    String? disableReason,
+    String? lastTestResult,
+    Value<DateTime?> lastTestedAt = const Value.absent(),
+    DateTime? updatedAt,
+  }) => NovelSource(
+    sourceId: sourceId ?? this.sourceId,
+    name: name ?? this.name,
+    json: json ?? this.json,
+    enabled: enabled ?? this.enabled,
+    disableReason: disableReason ?? this.disableReason,
+    lastTestResult: lastTestResult ?? this.lastTestResult,
+    lastTestedAt: lastTestedAt.present ? lastTestedAt.value : this.lastTestedAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  NovelSource copyWithCompanion(NovelSourcesCompanion data) {
+    return NovelSource(
+      sourceId: data.sourceId.present ? data.sourceId.value : this.sourceId,
+      name: data.name.present ? data.name.value : this.name,
+      json: data.json.present ? data.json.value : this.json,
+      enabled: data.enabled.present ? data.enabled.value : this.enabled,
+      disableReason: data.disableReason.present
+          ? data.disableReason.value
+          : this.disableReason,
+      lastTestResult: data.lastTestResult.present
+          ? data.lastTestResult.value
+          : this.lastTestResult,
+      lastTestedAt: data.lastTestedAt.present
+          ? data.lastTestedAt.value
+          : this.lastTestedAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('NovelSource(')
+          ..write('sourceId: $sourceId, ')
+          ..write('name: $name, ')
+          ..write('json: $json, ')
+          ..write('enabled: $enabled, ')
+          ..write('disableReason: $disableReason, ')
+          ..write('lastTestResult: $lastTestResult, ')
+          ..write('lastTestedAt: $lastTestedAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    sourceId,
+    name,
+    json,
+    enabled,
+    disableReason,
+    lastTestResult,
+    lastTestedAt,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is NovelSource &&
+          other.sourceId == this.sourceId &&
+          other.name == this.name &&
+          other.json == this.json &&
+          other.enabled == this.enabled &&
+          other.disableReason == this.disableReason &&
+          other.lastTestResult == this.lastTestResult &&
+          other.lastTestedAt == this.lastTestedAt &&
+          other.updatedAt == this.updatedAt);
+}
+
+class NovelSourcesCompanion extends UpdateCompanion<NovelSource> {
+  final Value<String> sourceId;
+  final Value<String> name;
+  final Value<String> json;
+  final Value<bool> enabled;
+  final Value<String> disableReason;
+  final Value<String> lastTestResult;
+  final Value<DateTime?> lastTestedAt;
+  final Value<DateTime> updatedAt;
+  final Value<int> rowid;
+  const NovelSourcesCompanion({
+    this.sourceId = const Value.absent(),
+    this.name = const Value.absent(),
+    this.json = const Value.absent(),
+    this.enabled = const Value.absent(),
+    this.disableReason = const Value.absent(),
+    this.lastTestResult = const Value.absent(),
+    this.lastTestedAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  NovelSourcesCompanion.insert({
+    required String sourceId,
+    required String name,
+    this.json = const Value.absent(),
+    this.enabled = const Value.absent(),
+    this.disableReason = const Value.absent(),
+    this.lastTestResult = const Value.absent(),
+    this.lastTestedAt = const Value.absent(),
+    required DateTime updatedAt,
+    this.rowid = const Value.absent(),
+  }) : sourceId = Value(sourceId),
+       name = Value(name),
+       updatedAt = Value(updatedAt);
+  static Insertable<NovelSource> custom({
+    Expression<String>? sourceId,
+    Expression<String>? name,
+    Expression<String>? json,
+    Expression<bool>? enabled,
+    Expression<String>? disableReason,
+    Expression<String>? lastTestResult,
+    Expression<DateTime>? lastTestedAt,
+    Expression<DateTime>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (sourceId != null) 'source_id': sourceId,
+      if (name != null) 'name': name,
+      if (json != null) 'json': json,
+      if (enabled != null) 'enabled': enabled,
+      if (disableReason != null) 'disable_reason': disableReason,
+      if (lastTestResult != null) 'last_test_result': lastTestResult,
+      if (lastTestedAt != null) 'last_tested_at': lastTestedAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  NovelSourcesCompanion copyWith({
+    Value<String>? sourceId,
+    Value<String>? name,
+    Value<String>? json,
+    Value<bool>? enabled,
+    Value<String>? disableReason,
+    Value<String>? lastTestResult,
+    Value<DateTime?>? lastTestedAt,
+    Value<DateTime>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return NovelSourcesCompanion(
+      sourceId: sourceId ?? this.sourceId,
+      name: name ?? this.name,
+      json: json ?? this.json,
+      enabled: enabled ?? this.enabled,
+      disableReason: disableReason ?? this.disableReason,
+      lastTestResult: lastTestResult ?? this.lastTestResult,
+      lastTestedAt: lastTestedAt ?? this.lastTestedAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (sourceId.present) {
+      map['source_id'] = Variable<String>(sourceId.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (json.present) {
+      map['json'] = Variable<String>(json.value);
+    }
+    if (enabled.present) {
+      map['enabled'] = Variable<bool>(enabled.value);
+    }
+    if (disableReason.present) {
+      map['disable_reason'] = Variable<String>(disableReason.value);
+    }
+    if (lastTestResult.present) {
+      map['last_test_result'] = Variable<String>(lastTestResult.value);
+    }
+    if (lastTestedAt.present) {
+      map['last_tested_at'] = Variable<DateTime>(lastTestedAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('NovelSourcesCompanion(')
+          ..write('sourceId: $sourceId, ')
+          ..write('name: $name, ')
+          ..write('json: $json, ')
+          ..write('enabled: $enabled, ')
+          ..write('disableReason: $disableReason, ')
+          ..write('lastTestResult: $lastTestResult, ')
+          ..write('lastTestedAt: $lastTestedAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $NovelTasksTable extends NovelTasks
+    with TableInfo<$NovelTasksTable, NovelTaskRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $NovelTasksTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _workIdMeta = const VerificationMeta('workId');
+  @override
+  late final GeneratedColumn<String> workId = GeneratedColumn<String>(
+    'work_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _titleMeta = const VerificationMeta('title');
+  @override
+  late final GeneratedColumn<String> title = GeneratedColumn<String>(
+    'title',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _statusMeta = const VerificationMeta('status');
+  @override
+  late final GeneratedColumn<String> status = GeneratedColumn<String>(
+    'status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _phaseMeta = const VerificationMeta('phase');
+  @override
+  late final GeneratedColumn<String> phase = GeneratedColumn<String>(
+    'phase',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _errorMeta = const VerificationMeta('error');
+  @override
+  late final GeneratedColumn<String> error = GeneratedColumn<String>(
+    'error',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _failedChaptersMeta = const VerificationMeta(
+    'failedChapters',
+  );
+  @override
+  late final GeneratedColumn<String> failedChapters = GeneratedColumn<String>(
+    'failed_chapters',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _totalChaptersMeta = const VerificationMeta(
+    'totalChapters',
+  );
+  @override
+  late final GeneratedColumn<int> totalChapters = GeneratedColumn<int>(
+    'total_chapters',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _doneChaptersMeta = const VerificationMeta(
+    'doneChapters',
+  );
+  @override
+  late final GeneratedColumn<int> doneChapters = GeneratedColumn<int>(
+    'done_chapters',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _snapshotMeta = const VerificationMeta(
+    'snapshot',
+  );
+  @override
+  late final GeneratedColumn<String> snapshot = GeneratedColumn<String>(
+    'snapshot',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('{}'),
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    workId,
+    title,
+    status,
+    phase,
+    error,
+    failedChapters,
+    totalChapters,
+    doneChapters,
+    snapshot,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'novel_tasks';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<NovelTaskRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('work_id')) {
+      context.handle(
+        _workIdMeta,
+        workId.isAcceptableOrUnknown(data['work_id']!, _workIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_workIdMeta);
+    }
+    if (data.containsKey('title')) {
+      context.handle(
+        _titleMeta,
+        title.isAcceptableOrUnknown(data['title']!, _titleMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_titleMeta);
+    }
+    if (data.containsKey('status')) {
+      context.handle(
+        _statusMeta,
+        status.isAcceptableOrUnknown(data['status']!, _statusMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_statusMeta);
+    }
+    if (data.containsKey('phase')) {
+      context.handle(
+        _phaseMeta,
+        phase.isAcceptableOrUnknown(data['phase']!, _phaseMeta),
+      );
+    }
+    if (data.containsKey('error')) {
+      context.handle(
+        _errorMeta,
+        error.isAcceptableOrUnknown(data['error']!, _errorMeta),
+      );
+    }
+    if (data.containsKey('failed_chapters')) {
+      context.handle(
+        _failedChaptersMeta,
+        failedChapters.isAcceptableOrUnknown(
+          data['failed_chapters']!,
+          _failedChaptersMeta,
+        ),
+      );
+    }
+    if (data.containsKey('total_chapters')) {
+      context.handle(
+        _totalChaptersMeta,
+        totalChapters.isAcceptableOrUnknown(
+          data['total_chapters']!,
+          _totalChaptersMeta,
+        ),
+      );
+    }
+    if (data.containsKey('done_chapters')) {
+      context.handle(
+        _doneChaptersMeta,
+        doneChapters.isAcceptableOrUnknown(
+          data['done_chapters']!,
+          _doneChaptersMeta,
+        ),
+      );
+    }
+    if (data.containsKey('snapshot')) {
+      context.handle(
+        _snapshotMeta,
+        snapshot.isAcceptableOrUnknown(data['snapshot']!, _snapshotMeta),
+      );
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {workId};
+  @override
+  NovelTaskRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return NovelTaskRow(
+      workId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}work_id'],
+      )!,
+      title: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}title'],
+      )!,
+      status: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}status'],
+      )!,
+      phase: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}phase'],
+      )!,
+      error: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}error'],
+      ),
+      failedChapters: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}failed_chapters'],
+      )!,
+      totalChapters: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}total_chapters'],
+      ),
+      doneChapters: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}done_chapters'],
+      ),
+      snapshot: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}snapshot'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $NovelTasksTable createAlias(String alias) {
+    return $NovelTasksTable(attachedDatabase, alias);
+  }
+}
+
+class NovelTaskRow extends DataClass implements Insertable<NovelTaskRow> {
+  final String workId;
+  final String title;
+  final String status;
+  final String phase;
+  final String? error;
+
+  /// 缺章清单摘要（终态 failed 时）："3,17,42" 或空。
+  final String failedChapters;
+  final int? totalChapters;
+  final int? doneChapters;
+
+  /// 启动配置快照（恢复续跑/重试的完整输入，JSON）。
+  final String snapshot;
+  final DateTime updatedAt;
+  const NovelTaskRow({
+    required this.workId,
+    required this.title,
+    required this.status,
+    required this.phase,
+    this.error,
+    required this.failedChapters,
+    this.totalChapters,
+    this.doneChapters,
+    required this.snapshot,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['work_id'] = Variable<String>(workId);
+    map['title'] = Variable<String>(title);
+    map['status'] = Variable<String>(status);
+    map['phase'] = Variable<String>(phase);
+    if (!nullToAbsent || error != null) {
+      map['error'] = Variable<String>(error);
+    }
+    map['failed_chapters'] = Variable<String>(failedChapters);
+    if (!nullToAbsent || totalChapters != null) {
+      map['total_chapters'] = Variable<int>(totalChapters);
+    }
+    if (!nullToAbsent || doneChapters != null) {
+      map['done_chapters'] = Variable<int>(doneChapters);
+    }
+    map['snapshot'] = Variable<String>(snapshot);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  NovelTasksCompanion toCompanion(bool nullToAbsent) {
+    return NovelTasksCompanion(
+      workId: Value(workId),
+      title: Value(title),
+      status: Value(status),
+      phase: Value(phase),
+      error: error == null && nullToAbsent
+          ? const Value.absent()
+          : Value(error),
+      failedChapters: Value(failedChapters),
+      totalChapters: totalChapters == null && nullToAbsent
+          ? const Value.absent()
+          : Value(totalChapters),
+      doneChapters: doneChapters == null && nullToAbsent
+          ? const Value.absent()
+          : Value(doneChapters),
+      snapshot: Value(snapshot),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory NovelTaskRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return NovelTaskRow(
+      workId: serializer.fromJson<String>(json['workId']),
+      title: serializer.fromJson<String>(json['title']),
+      status: serializer.fromJson<String>(json['status']),
+      phase: serializer.fromJson<String>(json['phase']),
+      error: serializer.fromJson<String?>(json['error']),
+      failedChapters: serializer.fromJson<String>(json['failedChapters']),
+      totalChapters: serializer.fromJson<int?>(json['totalChapters']),
+      doneChapters: serializer.fromJson<int?>(json['doneChapters']),
+      snapshot: serializer.fromJson<String>(json['snapshot']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'workId': serializer.toJson<String>(workId),
+      'title': serializer.toJson<String>(title),
+      'status': serializer.toJson<String>(status),
+      'phase': serializer.toJson<String>(phase),
+      'error': serializer.toJson<String?>(error),
+      'failedChapters': serializer.toJson<String>(failedChapters),
+      'totalChapters': serializer.toJson<int?>(totalChapters),
+      'doneChapters': serializer.toJson<int?>(doneChapters),
+      'snapshot': serializer.toJson<String>(snapshot),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  NovelTaskRow copyWith({
+    String? workId,
+    String? title,
+    String? status,
+    String? phase,
+    Value<String?> error = const Value.absent(),
+    String? failedChapters,
+    Value<int?> totalChapters = const Value.absent(),
+    Value<int?> doneChapters = const Value.absent(),
+    String? snapshot,
+    DateTime? updatedAt,
+  }) => NovelTaskRow(
+    workId: workId ?? this.workId,
+    title: title ?? this.title,
+    status: status ?? this.status,
+    phase: phase ?? this.phase,
+    error: error.present ? error.value : this.error,
+    failedChapters: failedChapters ?? this.failedChapters,
+    totalChapters: totalChapters.present
+        ? totalChapters.value
+        : this.totalChapters,
+    doneChapters: doneChapters.present ? doneChapters.value : this.doneChapters,
+    snapshot: snapshot ?? this.snapshot,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  NovelTaskRow copyWithCompanion(NovelTasksCompanion data) {
+    return NovelTaskRow(
+      workId: data.workId.present ? data.workId.value : this.workId,
+      title: data.title.present ? data.title.value : this.title,
+      status: data.status.present ? data.status.value : this.status,
+      phase: data.phase.present ? data.phase.value : this.phase,
+      error: data.error.present ? data.error.value : this.error,
+      failedChapters: data.failedChapters.present
+          ? data.failedChapters.value
+          : this.failedChapters,
+      totalChapters: data.totalChapters.present
+          ? data.totalChapters.value
+          : this.totalChapters,
+      doneChapters: data.doneChapters.present
+          ? data.doneChapters.value
+          : this.doneChapters,
+      snapshot: data.snapshot.present ? data.snapshot.value : this.snapshot,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('NovelTaskRow(')
+          ..write('workId: $workId, ')
+          ..write('title: $title, ')
+          ..write('status: $status, ')
+          ..write('phase: $phase, ')
+          ..write('error: $error, ')
+          ..write('failedChapters: $failedChapters, ')
+          ..write('totalChapters: $totalChapters, ')
+          ..write('doneChapters: $doneChapters, ')
+          ..write('snapshot: $snapshot, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    workId,
+    title,
+    status,
+    phase,
+    error,
+    failedChapters,
+    totalChapters,
+    doneChapters,
+    snapshot,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is NovelTaskRow &&
+          other.workId == this.workId &&
+          other.title == this.title &&
+          other.status == this.status &&
+          other.phase == this.phase &&
+          other.error == this.error &&
+          other.failedChapters == this.failedChapters &&
+          other.totalChapters == this.totalChapters &&
+          other.doneChapters == this.doneChapters &&
+          other.snapshot == this.snapshot &&
+          other.updatedAt == this.updatedAt);
+}
+
+class NovelTasksCompanion extends UpdateCompanion<NovelTaskRow> {
+  final Value<String> workId;
+  final Value<String> title;
+  final Value<String> status;
+  final Value<String> phase;
+  final Value<String?> error;
+  final Value<String> failedChapters;
+  final Value<int?> totalChapters;
+  final Value<int?> doneChapters;
+  final Value<String> snapshot;
+  final Value<DateTime> updatedAt;
+  final Value<int> rowid;
+  const NovelTasksCompanion({
+    this.workId = const Value.absent(),
+    this.title = const Value.absent(),
+    this.status = const Value.absent(),
+    this.phase = const Value.absent(),
+    this.error = const Value.absent(),
+    this.failedChapters = const Value.absent(),
+    this.totalChapters = const Value.absent(),
+    this.doneChapters = const Value.absent(),
+    this.snapshot = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  NovelTasksCompanion.insert({
+    required String workId,
+    required String title,
+    required String status,
+    this.phase = const Value.absent(),
+    this.error = const Value.absent(),
+    this.failedChapters = const Value.absent(),
+    this.totalChapters = const Value.absent(),
+    this.doneChapters = const Value.absent(),
+    this.snapshot = const Value.absent(),
+    required DateTime updatedAt,
+    this.rowid = const Value.absent(),
+  }) : workId = Value(workId),
+       title = Value(title),
+       status = Value(status),
+       updatedAt = Value(updatedAt);
+  static Insertable<NovelTaskRow> custom({
+    Expression<String>? workId,
+    Expression<String>? title,
+    Expression<String>? status,
+    Expression<String>? phase,
+    Expression<String>? error,
+    Expression<String>? failedChapters,
+    Expression<int>? totalChapters,
+    Expression<int>? doneChapters,
+    Expression<String>? snapshot,
+    Expression<DateTime>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (workId != null) 'work_id': workId,
+      if (title != null) 'title': title,
+      if (status != null) 'status': status,
+      if (phase != null) 'phase': phase,
+      if (error != null) 'error': error,
+      if (failedChapters != null) 'failed_chapters': failedChapters,
+      if (totalChapters != null) 'total_chapters': totalChapters,
+      if (doneChapters != null) 'done_chapters': doneChapters,
+      if (snapshot != null) 'snapshot': snapshot,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  NovelTasksCompanion copyWith({
+    Value<String>? workId,
+    Value<String>? title,
+    Value<String>? status,
+    Value<String>? phase,
+    Value<String?>? error,
+    Value<String>? failedChapters,
+    Value<int?>? totalChapters,
+    Value<int?>? doneChapters,
+    Value<String>? snapshot,
+    Value<DateTime>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return NovelTasksCompanion(
+      workId: workId ?? this.workId,
+      title: title ?? this.title,
+      status: status ?? this.status,
+      phase: phase ?? this.phase,
+      error: error ?? this.error,
+      failedChapters: failedChapters ?? this.failedChapters,
+      totalChapters: totalChapters ?? this.totalChapters,
+      doneChapters: doneChapters ?? this.doneChapters,
+      snapshot: snapshot ?? this.snapshot,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (workId.present) {
+      map['work_id'] = Variable<String>(workId.value);
+    }
+    if (title.present) {
+      map['title'] = Variable<String>(title.value);
+    }
+    if (status.present) {
+      map['status'] = Variable<String>(status.value);
+    }
+    if (phase.present) {
+      map['phase'] = Variable<String>(phase.value);
+    }
+    if (error.present) {
+      map['error'] = Variable<String>(error.value);
+    }
+    if (failedChapters.present) {
+      map['failed_chapters'] = Variable<String>(failedChapters.value);
+    }
+    if (totalChapters.present) {
+      map['total_chapters'] = Variable<int>(totalChapters.value);
+    }
+    if (doneChapters.present) {
+      map['done_chapters'] = Variable<int>(doneChapters.value);
+    }
+    if (snapshot.present) {
+      map['snapshot'] = Variable<String>(snapshot.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('NovelTasksCompanion(')
+          ..write('workId: $workId, ')
+          ..write('title: $title, ')
+          ..write('status: $status, ')
+          ..write('phase: $phase, ')
+          ..write('error: $error, ')
+          ..write('failedChapters: $failedChapters, ')
+          ..write('totalChapters: $totalChapters, ')
+          ..write('doneChapters: $doneChapters, ')
+          ..write('snapshot: $snapshot, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -2566,6 +4317,9 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   );
   late final $SettingsTable settings = $SettingsTable(this);
   late final $SyncStateTable syncState = $SyncStateTable(this);
+  late final $JmTasksTable jmTasks = $JmTasksTable(this);
+  late final $NovelSourcesTable novelSources = $NovelSourcesTable(this);
+  late final $NovelTasksTable novelTasks = $NovelTasksTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -2576,6 +4330,9 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     readingProgress,
     settings,
     syncState,
+    jmTasks,
+    novelSources,
+    novelTasks,
   ];
 }
 
@@ -3923,6 +5680,886 @@ typedef $$SyncStateTableProcessedTableManager =
       SyncStateData,
       PrefetchHooks Function()
     >;
+typedef $$JmTasksTableCreateCompanionBuilder = JmTasksCompanion Function({
+  required String albumId,
+  required String title,
+  required String status,
+  Value<String> phase,
+  Value<String?> error,
+  Value<int?> pages,
+  Value<int?> keptOriginal,
+  Value<String> ffmpegPath,
+  Value<String> proxy,
+  required DateTime updatedAt,
+  Value<int> rowid,
+});
+typedef $$JmTasksTableUpdateCompanionBuilder = JmTasksCompanion Function({
+  Value<String> albumId,
+  Value<String> title,
+  Value<String> status,
+  Value<String> phase,
+  Value<String?> error,
+  Value<int?> pages,
+  Value<int?> keptOriginal,
+  Value<String> ffmpegPath,
+  Value<String> proxy,
+  Value<DateTime> updatedAt,
+  Value<int> rowid,
+});
+
+class $$JmTasksTableFilterComposer
+    extends Composer<_$AppDatabase, $JmTasksTable> {
+  $$JmTasksTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get albumId => $composableBuilder(
+    column: $table.albumId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get title => $composableBuilder(
+    column: $table.title,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get phase => $composableBuilder(
+    column: $table.phase,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get error => $composableBuilder(
+    column: $table.error,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get pages => $composableBuilder(
+    column: $table.pages,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get keptOriginal => $composableBuilder(
+    column: $table.keptOriginal,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get ffmpegPath => $composableBuilder(
+    column: $table.ffmpegPath,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get proxy => $composableBuilder(
+    column: $table.proxy,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$JmTasksTableOrderingComposer
+    extends Composer<_$AppDatabase, $JmTasksTable> {
+  $$JmTasksTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get albumId => $composableBuilder(
+    column: $table.albumId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get title => $composableBuilder(
+    column: $table.title,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get phase => $composableBuilder(
+    column: $table.phase,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get error => $composableBuilder(
+    column: $table.error,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get pages => $composableBuilder(
+    column: $table.pages,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get keptOriginal => $composableBuilder(
+    column: $table.keptOriginal,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get ffmpegPath => $composableBuilder(
+    column: $table.ffmpegPath,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get proxy => $composableBuilder(
+    column: $table.proxy,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$JmTasksTableAnnotationComposer
+    extends Composer<_$AppDatabase, $JmTasksTable> {
+  $$JmTasksTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get albumId =>
+      $composableBuilder(column: $table.albumId, builder: (column) => column);
+
+  GeneratedColumn<String> get title =>
+      $composableBuilder(column: $table.title, builder: (column) => column);
+
+  GeneratedColumn<String> get status =>
+      $composableBuilder(column: $table.status, builder: (column) => column);
+
+  GeneratedColumn<String> get phase =>
+      $composableBuilder(column: $table.phase, builder: (column) => column);
+
+  GeneratedColumn<String> get error =>
+      $composableBuilder(column: $table.error, builder: (column) => column);
+
+  GeneratedColumn<int> get pages =>
+      $composableBuilder(column: $table.pages, builder: (column) => column);
+
+  GeneratedColumn<int> get keptOriginal => $composableBuilder(
+    column: $table.keptOriginal,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get ffmpegPath => $composableBuilder(
+    column: $table.ffmpegPath,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get proxy =>
+      $composableBuilder(column: $table.proxy, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$JmTasksTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $JmTasksTable,
+          JmTaskRow,
+          $$JmTasksTableFilterComposer,
+          $$JmTasksTableOrderingComposer,
+          $$JmTasksTableAnnotationComposer,
+          $$JmTasksTableCreateCompanionBuilder,
+          $$JmTasksTableUpdateCompanionBuilder,
+          (JmTaskRow, BaseReferences<_$AppDatabase, $JmTasksTable, JmTaskRow>),
+          JmTaskRow,
+          PrefetchHooks Function()
+        > {
+  $$JmTasksTableTableManager(_$AppDatabase db, $JmTasksTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$JmTasksTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$JmTasksTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$JmTasksTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> albumId = const Value.absent(),
+                Value<String> title = const Value.absent(),
+                Value<String> status = const Value.absent(),
+                Value<String> phase = const Value.absent(),
+                Value<String?> error = const Value.absent(),
+                Value<int?> pages = const Value.absent(),
+                Value<int?> keptOriginal = const Value.absent(),
+                Value<String> ffmpegPath = const Value.absent(),
+                Value<String> proxy = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => JmTasksCompanion(
+                albumId: albumId,
+                title: title,
+                status: status,
+                phase: phase,
+                error: error,
+                pages: pages,
+                keptOriginal: keptOriginal,
+                ffmpegPath: ffmpegPath,
+                proxy: proxy,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String albumId,
+                required String title,
+                required String status,
+                Value<String> phase = const Value.absent(),
+                Value<String?> error = const Value.absent(),
+                Value<int?> pages = const Value.absent(),
+                Value<int?> keptOriginal = const Value.absent(),
+                Value<String> ffmpegPath = const Value.absent(),
+                Value<String> proxy = const Value.absent(),
+                required DateTime updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => JmTasksCompanion.insert(
+                albumId: albumId,
+                title: title,
+                status: status,
+                phase: phase,
+                error: error,
+                pages: pages,
+                keptOriginal: keptOriginal,
+                ffmpegPath: ffmpegPath,
+                proxy: proxy,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$JmTasksTable, JmTaskRow>(table),
+                  BaseReferences<_$AppDatabase, $JmTasksTable, JmTaskRow>(
+                    db,
+                    table,
+                    e,
+                  ),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$JmTasksTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $JmTasksTable,
+      JmTaskRow,
+      $$JmTasksTableFilterComposer,
+      $$JmTasksTableOrderingComposer,
+      $$JmTasksTableAnnotationComposer,
+      $$JmTasksTableCreateCompanionBuilder,
+      $$JmTasksTableUpdateCompanionBuilder,
+      (JmTaskRow, BaseReferences<_$AppDatabase, $JmTasksTable, JmTaskRow>),
+      JmTaskRow,
+      PrefetchHooks Function()
+    >;
+typedef $$NovelSourcesTableCreateCompanionBuilder =
+    NovelSourcesCompanion Function({
+      required String sourceId,
+      required String name,
+      Value<String> json,
+      Value<bool> enabled,
+      Value<String> disableReason,
+      Value<String> lastTestResult,
+      Value<DateTime?> lastTestedAt,
+      required DateTime updatedAt,
+      Value<int> rowid,
+    });
+typedef $$NovelSourcesTableUpdateCompanionBuilder =
+    NovelSourcesCompanion Function({
+      Value<String> sourceId,
+      Value<String> name,
+      Value<String> json,
+      Value<bool> enabled,
+      Value<String> disableReason,
+      Value<String> lastTestResult,
+      Value<DateTime?> lastTestedAt,
+      Value<DateTime> updatedAt,
+      Value<int> rowid,
+    });
+
+class $$NovelSourcesTableFilterComposer
+    extends Composer<_$AppDatabase, $NovelSourcesTable> {
+  $$NovelSourcesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get sourceId => $composableBuilder(
+    column: $table.sourceId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get json => $composableBuilder(
+    column: $table.json,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get enabled => $composableBuilder(
+    column: $table.enabled,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get disableReason => $composableBuilder(
+    column: $table.disableReason,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get lastTestResult => $composableBuilder(
+    column: $table.lastTestResult,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get lastTestedAt => $composableBuilder(
+    column: $table.lastTestedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$NovelSourcesTableOrderingComposer
+    extends Composer<_$AppDatabase, $NovelSourcesTable> {
+  $$NovelSourcesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get sourceId => $composableBuilder(
+    column: $table.sourceId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get json => $composableBuilder(
+    column: $table.json,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get enabled => $composableBuilder(
+    column: $table.enabled,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get disableReason => $composableBuilder(
+    column: $table.disableReason,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get lastTestResult => $composableBuilder(
+    column: $table.lastTestResult,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get lastTestedAt => $composableBuilder(
+    column: $table.lastTestedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$NovelSourcesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $NovelSourcesTable> {
+  $$NovelSourcesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get sourceId =>
+      $composableBuilder(column: $table.sourceId, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get json =>
+      $composableBuilder(column: $table.json, builder: (column) => column);
+
+  GeneratedColumn<bool> get enabled =>
+      $composableBuilder(column: $table.enabled, builder: (column) => column);
+
+  GeneratedColumn<String> get disableReason => $composableBuilder(
+    column: $table.disableReason,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get lastTestResult => $composableBuilder(
+    column: $table.lastTestResult,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get lastTestedAt => $composableBuilder(
+    column: $table.lastTestedAt,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$NovelSourcesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $NovelSourcesTable,
+          NovelSource,
+          $$NovelSourcesTableFilterComposer,
+          $$NovelSourcesTableOrderingComposer,
+          $$NovelSourcesTableAnnotationComposer,
+          $$NovelSourcesTableCreateCompanionBuilder,
+          $$NovelSourcesTableUpdateCompanionBuilder,
+          (
+            NovelSource,
+            BaseReferences<_$AppDatabase, $NovelSourcesTable, NovelSource>,
+          ),
+          NovelSource,
+          PrefetchHooks Function()
+        > {
+  $$NovelSourcesTableTableManager(_$AppDatabase db, $NovelSourcesTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$NovelSourcesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$NovelSourcesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$NovelSourcesTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> sourceId = const Value.absent(),
+                Value<String> name = const Value.absent(),
+                Value<String> json = const Value.absent(),
+                Value<bool> enabled = const Value.absent(),
+                Value<String> disableReason = const Value.absent(),
+                Value<String> lastTestResult = const Value.absent(),
+                Value<DateTime?> lastTestedAt = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => NovelSourcesCompanion(
+                sourceId: sourceId,
+                name: name,
+                json: json,
+                enabled: enabled,
+                disableReason: disableReason,
+                lastTestResult: lastTestResult,
+                lastTestedAt: lastTestedAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String sourceId,
+                required String name,
+                Value<String> json = const Value.absent(),
+                Value<bool> enabled = const Value.absent(),
+                Value<String> disableReason = const Value.absent(),
+                Value<String> lastTestResult = const Value.absent(),
+                Value<DateTime?> lastTestedAt = const Value.absent(),
+                required DateTime updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => NovelSourcesCompanion.insert(
+                sourceId: sourceId,
+                name: name,
+                json: json,
+                enabled: enabled,
+                disableReason: disableReason,
+                lastTestResult: lastTestResult,
+                lastTestedAt: lastTestedAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$NovelSourcesTable, NovelSource>(table),
+                  BaseReferences<
+                    _$AppDatabase,
+                    $NovelSourcesTable,
+                    NovelSource
+                  >(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$NovelSourcesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $NovelSourcesTable,
+      NovelSource,
+      $$NovelSourcesTableFilterComposer,
+      $$NovelSourcesTableOrderingComposer,
+      $$NovelSourcesTableAnnotationComposer,
+      $$NovelSourcesTableCreateCompanionBuilder,
+      $$NovelSourcesTableUpdateCompanionBuilder,
+      (
+        NovelSource,
+        BaseReferences<_$AppDatabase, $NovelSourcesTable, NovelSource>,
+      ),
+      NovelSource,
+      PrefetchHooks Function()
+    >;
+typedef $$NovelTasksTableCreateCompanionBuilder = NovelTasksCompanion Function({
+  required String workId,
+  required String title,
+  required String status,
+  Value<String> phase,
+  Value<String?> error,
+  Value<String> failedChapters,
+  Value<int?> totalChapters,
+  Value<int?> doneChapters,
+  Value<String> snapshot,
+  required DateTime updatedAt,
+  Value<int> rowid,
+});
+typedef $$NovelTasksTableUpdateCompanionBuilder = NovelTasksCompanion Function({
+  Value<String> workId,
+  Value<String> title,
+  Value<String> status,
+  Value<String> phase,
+  Value<String?> error,
+  Value<String> failedChapters,
+  Value<int?> totalChapters,
+  Value<int?> doneChapters,
+  Value<String> snapshot,
+  Value<DateTime> updatedAt,
+  Value<int> rowid,
+});
+
+class $$NovelTasksTableFilterComposer
+    extends Composer<_$AppDatabase, $NovelTasksTable> {
+  $$NovelTasksTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get workId => $composableBuilder(
+    column: $table.workId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get title => $composableBuilder(
+    column: $table.title,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get phase => $composableBuilder(
+    column: $table.phase,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get error => $composableBuilder(
+    column: $table.error,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get failedChapters => $composableBuilder(
+    column: $table.failedChapters,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get totalChapters => $composableBuilder(
+    column: $table.totalChapters,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get doneChapters => $composableBuilder(
+    column: $table.doneChapters,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get snapshot => $composableBuilder(
+    column: $table.snapshot,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$NovelTasksTableOrderingComposer
+    extends Composer<_$AppDatabase, $NovelTasksTable> {
+  $$NovelTasksTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get workId => $composableBuilder(
+    column: $table.workId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get title => $composableBuilder(
+    column: $table.title,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get phase => $composableBuilder(
+    column: $table.phase,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get error => $composableBuilder(
+    column: $table.error,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get failedChapters => $composableBuilder(
+    column: $table.failedChapters,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get totalChapters => $composableBuilder(
+    column: $table.totalChapters,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get doneChapters => $composableBuilder(
+    column: $table.doneChapters,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get snapshot => $composableBuilder(
+    column: $table.snapshot,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$NovelTasksTableAnnotationComposer
+    extends Composer<_$AppDatabase, $NovelTasksTable> {
+  $$NovelTasksTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get workId =>
+      $composableBuilder(column: $table.workId, builder: (column) => column);
+
+  GeneratedColumn<String> get title =>
+      $composableBuilder(column: $table.title, builder: (column) => column);
+
+  GeneratedColumn<String> get status =>
+      $composableBuilder(column: $table.status, builder: (column) => column);
+
+  GeneratedColumn<String> get phase =>
+      $composableBuilder(column: $table.phase, builder: (column) => column);
+
+  GeneratedColumn<String> get error =>
+      $composableBuilder(column: $table.error, builder: (column) => column);
+
+  GeneratedColumn<String> get failedChapters => $composableBuilder(
+    column: $table.failedChapters,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get totalChapters => $composableBuilder(
+    column: $table.totalChapters,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get doneChapters => $composableBuilder(
+    column: $table.doneChapters,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get snapshot =>
+      $composableBuilder(column: $table.snapshot, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$NovelTasksTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $NovelTasksTable,
+          NovelTaskRow,
+          $$NovelTasksTableFilterComposer,
+          $$NovelTasksTableOrderingComposer,
+          $$NovelTasksTableAnnotationComposer,
+          $$NovelTasksTableCreateCompanionBuilder,
+          $$NovelTasksTableUpdateCompanionBuilder,
+          (
+            NovelTaskRow,
+            BaseReferences<_$AppDatabase, $NovelTasksTable, NovelTaskRow>,
+          ),
+          NovelTaskRow,
+          PrefetchHooks Function()
+        > {
+  $$NovelTasksTableTableManager(_$AppDatabase db, $NovelTasksTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$NovelTasksTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$NovelTasksTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$NovelTasksTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> workId = const Value.absent(),
+                Value<String> title = const Value.absent(),
+                Value<String> status = const Value.absent(),
+                Value<String> phase = const Value.absent(),
+                Value<String?> error = const Value.absent(),
+                Value<String> failedChapters = const Value.absent(),
+                Value<int?> totalChapters = const Value.absent(),
+                Value<int?> doneChapters = const Value.absent(),
+                Value<String> snapshot = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => NovelTasksCompanion(
+                workId: workId,
+                title: title,
+                status: status,
+                phase: phase,
+                error: error,
+                failedChapters: failedChapters,
+                totalChapters: totalChapters,
+                doneChapters: doneChapters,
+                snapshot: snapshot,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String workId,
+                required String title,
+                required String status,
+                Value<String> phase = const Value.absent(),
+                Value<String?> error = const Value.absent(),
+                Value<String> failedChapters = const Value.absent(),
+                Value<int?> totalChapters = const Value.absent(),
+                Value<int?> doneChapters = const Value.absent(),
+                Value<String> snapshot = const Value.absent(),
+                required DateTime updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => NovelTasksCompanion.insert(
+                workId: workId,
+                title: title,
+                status: status,
+                phase: phase,
+                error: error,
+                failedChapters: failedChapters,
+                totalChapters: totalChapters,
+                doneChapters: doneChapters,
+                snapshot: snapshot,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$NovelTasksTable, NovelTaskRow>(table),
+                  BaseReferences<_$AppDatabase, $NovelTasksTable, NovelTaskRow>(
+                    db,
+                    table,
+                    e,
+                  ),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$NovelTasksTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $NovelTasksTable,
+      NovelTaskRow,
+      $$NovelTasksTableFilterComposer,
+      $$NovelTasksTableOrderingComposer,
+      $$NovelTasksTableAnnotationComposer,
+      $$NovelTasksTableCreateCompanionBuilder,
+      $$NovelTasksTableUpdateCompanionBuilder,
+      (
+        NovelTaskRow,
+        BaseReferences<_$AppDatabase, $NovelTasksTable, NovelTaskRow>,
+      ),
+      NovelTaskRow,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -3937,4 +6574,10 @@ class $AppDatabaseManager {
       $$SettingsTableTableManager(_db, _db.settings);
   $$SyncStateTableTableManager get syncState =>
       $$SyncStateTableTableManager(_db, _db.syncState);
+  $$JmTasksTableTableManager get jmTasks =>
+      $$JmTasksTableTableManager(_db, _db.jmTasks);
+  $$NovelSourcesTableTableManager get novelSources =>
+      $$NovelSourcesTableTableManager(_db, _db.novelSources);
+  $$NovelTasksTableTableManager get novelTasks =>
+      $$NovelTasksTableTableManager(_db, _db.novelTasks);
 }

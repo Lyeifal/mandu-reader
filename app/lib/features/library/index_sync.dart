@@ -6,6 +6,7 @@ import 'package:logging/logging.dart';
 import '../../data/db/app_database.dart';
 import '../bucket/bucket_client.dart';
 import '../bucket/path_helper.dart';
+import 'fts_helper.dart';
 import 'work_delete.dart';
 import 'works_index.dart';
 
@@ -177,11 +178,14 @@ class IndexSync {
             syncedAt: Value(DateTime.now()),
           ),
         );
-    await db.customStatement('DELETE FROM works_fts WHERE id = ?', [e.id]);
-    await db.customStatement(
-      'INSERT INTO works_fts (id, title, title_jp, author, series, tags) '
-      'VALUES (?,?,?,?,?,?)',
-      [e.id, e.title, e.titleJp, e.author, e.series, tags.join(' ')],
+    await upsertWorkFts(
+      db,
+      id: e.id,
+      title: e.title,
+      titleJp: e.titleJp,
+      author: e.author,
+      series: e.series,
+      tags: tags,
     );
   }
 

@@ -5,6 +5,7 @@ import '../downloader/display_image.dart';
 import '../downloader/jm_tasks.dart';
 import '../providers.dart';
 import 'jm_account.dart';
+import '../downloader/jm_download_dialog.dart';
 import 'jm_api.dart';
 import 'jm_models.dart';
 
@@ -336,6 +337,15 @@ class _JmBrowseViewState extends ConsumerState<JmBrowseView> {
                   ),
                 ),
               const SizedBox(width: 8),
+              // 下载快捷入口（车号/链接直下）：原书架顶栏按钮已随页签化移除
+              IconButton(
+                tooltip: 'JM 下载（车号 / 链接）',
+                icon: const Icon(Icons.cloud_download),
+                onPressed: () => showDialog<void>(
+                  context: context,
+                  builder: (context) => const JmDownloadDialog(),
+                ),
+              ),
               if (_loading)
                 const SizedBox(
                   width: 18,
@@ -585,6 +595,7 @@ class _Cover extends StatelessWidget {
       jmAlbumCoverUrl(albumId),
       fit: BoxFit.cover,
       proxy: proxy.isEmpty ? null : proxy,
+      cacheWidth: 340,
       fallback: Container(
         color: Colors.black26,
         alignment: Alignment.center,

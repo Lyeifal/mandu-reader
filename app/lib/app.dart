@@ -8,6 +8,7 @@ import 'features/library/shelf_page.dart';
 import 'features/providers.dart';
 import 'features/reader/reader_page.dart';
 import 'features/settings/settings_page.dart';
+import 'features/source/ui/source_manage_page.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   final refresh = ValueNotifier(0);
@@ -45,6 +46,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: ShelfPage.path,
         builder: (context, state) => const ShelfPage(),
+      ),
+      GoRoute(
+        path: SourceManagePage.path,
+        builder: (context, state) => const SourceManagePage(),
       ),
       GoRoute(
         path: '/reader',

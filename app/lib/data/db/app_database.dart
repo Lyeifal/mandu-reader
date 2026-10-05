@@ -5,13 +5,24 @@ import 'tables.dart';
 
 part 'app_database.g.dart';
 
-@DriftDatabase(tables: [Works, Bookmarks, ReadingProgress, Settings, SyncState])
+@DriftDatabase(
+  tables: [
+    Works,
+    Bookmarks,
+    ReadingProgress,
+    Settings,
+    SyncState,
+    JmTasks,
+    NovelSources,
+    NovelTasks,
+  ],
+)
 class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor])
     : super(executor ?? driftDatabase(name: 'mandu_reader'));
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -32,6 +43,15 @@ class AppDatabase extends _$AppDatabase {
         await m.addColumn(works, works.zhQuality);
         await m.addColumn(works, works.publishedAt);
         await m.addColumn(works, works.completedAt);
+      }
+      if (from < 3) {
+        // v3：JM 下载任务持久化（进程被杀后恢复/续跑）
+        await m.createTable(jmTasks);
+      }
+      if (from < 4) {
+        // v4：书源（内置/用户导入覆盖层）+ 小说下载任务持久化
+        await m.createTable(novelSources);
+        await m.createTable(novelTasks);
       }
     },
   );

@@ -10,6 +10,7 @@ import '../../data/db/app_database.dart';
 import '../downloader/jm_pipeline.dart' show resolveLocalRoot;
 import '../providers.dart';
 import 'epub_import.dart';
+import 'fts_helper.dart';
 import 'novel_picker_dialog.dart';
 import 'shelf_filter_panel.dart' show showMonthPicker, statusLabel;
 import 'shelf_query.dart';
@@ -172,6 +173,17 @@ class _AddWorkDialogState extends ConsumerState<AddWorkDialog> {
               syncedAt: Value(DateTime.now()),
             ),
           );
+      // 关键词搜索（works_fts）同步维护：手动添加/epub 导入不漏写
+      await upsertWorkFts(
+        db,
+        id: id,
+        title: _title.text.trim().isNotEmpty ? _title.text.trim() : parsedTitle,
+        titleJp: _titleJp.text.trim(),
+        author: _author.text.trim().isNotEmpty
+            ? _author.text.trim()
+            : parsedAuthor,
+        tags: _tagList,
+      );
       ref
         ..invalidate(shelfWorksProvider)
         ..invalidate(shelfTotalProvider)
@@ -252,6 +264,15 @@ class _AddWorkDialogState extends ConsumerState<AddWorkDialog> {
             syncedAt: Value(DateTime.now()),
           ),
         );
+    // 关键词搜索（works_fts）同步维护：批量导入路径不漏写
+    await upsertWorkFts(
+      ref.read(appDatabaseProvider),
+      id: id,
+      title: novel.title.isEmpty
+          ? p.basenameWithoutExtension(srcPath)
+          : novel.title,
+      author: novel.author,
+    );
     return novel.title.isEmpty
         ? p.basenameWithoutExtension(srcPath)
         : novel.title;

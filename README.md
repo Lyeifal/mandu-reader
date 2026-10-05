@@ -2,6 +2,8 @@
 
 单人自用的漫画 + 小说阅读与管理应用。无服务端，App 经 SigV4 直连私有 S3 兼容桶（OSS / COS / R2 / MinIO），本地 SQLite 优先检索与阅读。
 
+**本仓库仅供个人学习与技术研究使用。** 上游参考仓库的许可边界见文末「上游致谢 / 参考仓库」章节。
+
 - 设计文档：[docs/design.md](docs/design.md)
 - Flutter 工程：[app/](app/)
 
@@ -10,7 +12,7 @@
 方式一（直接跑已构建的程序）：
 
 ```
-D:\Code\comics&book\app\build\windows\x64\runner\Debug\mandu_reader.exe
+D:\Code\mandu_reader\app\build\windows\x64\runner\Debug\mandu_reader.exe
 ```
 
 双击即可。这是日常使用的入口。
@@ -18,17 +20,16 @@ D:\Code\comics&book\app\build\windows\x64\runner\Debug\mandu_reader.exe
 方式二（开发模式，改代码热重载）：
 
 ```bash
-subst Z: "D:\Code\comics&book"                  # 每个新登录会话执行一次
 export PATH="/d/Code/opt/flutter/bin:$PATH"
 export FLUTTER_STORAGE_BASE_URL="https://mirrors.cloud.tencent.com/flutter"
-cd /z/app
+cd /d/Code/mandu_reader/app
 flutter run -d windows
 ```
 
 改了代码重新出包（方式一的 exe）：
 
 ```bash
-cd /z/app && flutter build windows --debug
+cd /d/Code/mandu_reader/app && flutter build windows --debug
 ```
 
 ## 安装到手机（Android）
@@ -36,7 +37,7 @@ cd /z/app && flutter build windows --debug
 USB 连上真机（需开开发者选项+USB 调试），构建后安装（`-r` 为覆盖安装，PIN 与桶配置保留）：
 
 ```bash
-cd /z/app && flutter build apk --debug
+cd /d/Code/mandu_reader/app && flutter build apk --debug
 "$LOCALAPPDATA/Android/Sdk/platform-tools/adb" install -r app/build/app/outputs/flutter-apk/app-debug.apk
 ```
 
@@ -71,12 +72,12 @@ Linux 服务器用 systemd 常驻（推荐 NAS/常开机器；VPS 注意出入�
 
 ```ini
 [Unit]
-Description=mindu compress worker
+Description=mandu compress worker
 After=network-online.target
 
 [Service]
-EnvironmentFile=/etc/mindu/worker.env    # 环境变量写这里，chmod 600
-ExecStart=/opt/mindu/compress_worker
+EnvironmentFile=/etc/mandu/worker.env    # 环境变量写这里，chmod 600
+ExecStart=/opt/mandu/compress_worker
 Restart=always
 RestartSec=10
 
@@ -98,34 +99,40 @@ Windows 则配任务计划程序「登录时启动」即可（不用设每日触
 
 本机网络对国际出口限速，已配镜像：Gradle 走阿里源（`~/.gradle/init.d/cn-mirrors.gradle` + 工程 gradle 文件）、Flutter 引擎走腾讯镜像（`FLUTTER_STORAGE_BASE_URL`，已 setx 为用户环境变量）、sqlite3 钩子下载走 gh-proxy（pubspec 里配置）。Flutter SDK 升级后需重改 `packages/flutter_tools/gradle/settings.gradle.kts` 加镜像（详见 AGENTS.md）。
 
-## ⚠️ 目录名含 `&`，test/run 必须经 Z: 盘符跑
-
-仓库路径 `D:\Code\comics&book` 中的 `&` 会撑爆 Flutter 原生资产钩子拼出的
-cmd 命令行（`dart compile kernel --packages=D:\Code\comics&book\...` 在 `&` 处截断）。
-**从真实路径直接跑 `flutter test` / `flutter run` 必然失败**。解决：用 subst 映射后从 Z: 跑。
+## 验证清单（任何改动后）
 
 ```bash
-subst Z: "D:\Code\comics&book"     # 每个新登录会话执行一次
 export PATH="/d/Code/opt/flutter/bin:$PATH"
 
-cd /z/app
+cd /d/Code/mandu_reader/app
 dart format --output=none --set-exit-if-changed .
 flutter analyze      # 零告警
-flutter test         # 全绿（115 个用例）
+flutter test         # 全绿
 ```
 
-`flutter analyze` 从 D: 路径跑没有问题，只有 test/run/build 涉及钩子构建。
+（根目录 2026-10-04 起为纯 ASCII `D:\Code\mandu_reader`，由 `comics&book` 改名。历史上路径中的 `&` 会撑爆 Flutter 原生资产钩子拼出的 cmd 命令行（在 `&` 处截断，真实路径必败），靠 `subst Z:` 映射规避——改名后该 workaround 已退役，直接从真实路径跑。）
+
+`flutter test/run/build` 也直接从真实路径跑——新路径纯 ASCII 无 `&`，cmd 截断问题不复存在。
 
 ## 常用命令
 
 ```bash
 export PATH="/d/Code/opt/flutter/bin:$PATH"   # 每个新 shell 都需要
-cd /z/app                                      # 测试/构建经 Z:
+cd /d/Code/mandu_reader/app
 dart run build_runner build --delete-conflicting-outputs   # drift 代码生成
 ```
 
+## 上游致谢 / 参考仓库
+
+| 功能 | 参考仓库 | 关系与许可说明 |
+|---|---|---|
+| JM 漫画下载 | [hect0x7/JMComic-Crawler-Python](https://github.com/hect0x7/JMComic-Crawler-Python) | 移动端 API 协议、加解密、图片条带还原逻辑的移植蓝本（原 Python 库 `jmcomic`；本工程为其纯 Dart 重写，见 `app/lib/features/jm/`）。**该仓库未标注开源许可证**（原 README 声明仅供学习研究），此处仅作实现出处说明，相关权利义务由使用者自负。 |
+| 小说书源引擎 | [pcdd/sonovel](https://github.com/pcdd/sonovel) | 25 个书源规则数据派生自其 `bundle/rules/*.json`（AGPL-3.0）；署名与逐源对照见 [app/assets/rules/NOTICE.md](app/assets/rules/NOTICE.md)，App 设置页含致谢行。引擎本身为独立 Dart 实现。 |
+
 ## 路线图
 
-见设计文档 §11。当前进度：**M1 桶链路 ✅ · 书架（筛选/翻页/封面/标签） ✅ · JM 下载+AVIF 管线 ✅ · 阅读器（漫画双模式+小说分页/进度自动保存/书签） ✅ · 进度与书签事件同步（多端合并+日志折叠） ✅ · 批量上传与任务队列（漫画/小说） ✅ · 压缩人工审阅 ✅**。
+见设计文档 §11。当前进度：**M1 桶链路 ✅ · 书架（筛选/翻页/封面/标签） ✅ · JM 下载+AVIF 管线 ✅ · M3 漫画完整 ✅（双页对开/漫画书签 UI）· M4 小说完整 ✅（护眼自定义+定时切换+图片背景/字体导入+_fonts/ 桶同步/书内搜索）· 进度与书签事件同步（多端合并+日志折叠） ✅ · 批量上传与任务队列（漫画/小说） ✅ · 压缩人工审阅 ✅**。
 
-后续：M3 剩余（双页对开/漫画书签 UI）→ M4 剩余（护眼自定义/定时切换/字体导入/书内搜索）→ M5 书源引擎 → M6 追更（增量更新/`_novel_cache` 失效）→ M7 打磨（FTS 上线/图片 LRU/打包）。
+当前进度追加（2026-10-04 打磨）：**M5 书源引擎 ✅（巡检放行：8 源启用 / 17 禁用带因）**——so-novel 25 源规则数据（AGPL 致谢见 assets/rules/NOTICE.md）+ Dart 重写引擎（`@js:`→`@op:` 算子、迷你 CSS/XPath、staging 幂等补章、meta.json 追更回溯）+ 书架「找书」页签 + `/sources` 源管理 + `dart run tool/source_doctor.dart` 巡检。
+
+M6 已收尾（源追更经决策不做、清本地入口确认已有、`_novel_cache` 失效落地）。**M7 已收尾（2026-10-04）：FTS 查询接通 + 语法糖、启动缓存修剪（图片 LRU/`_novel_cache` 上限/审阅残留清扫）、启动清扫去重、封面解码降内存、Android/Windows release 出包验证**。release 包用 debug 签名（个人自用合规；要分发需自备 keystore 替换 `android/app/build.gradle.kts` 的 signingConfig）。

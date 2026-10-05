@@ -42,3 +42,9 @@ final bucketClientProvider = Provider<BucketClient?>((ref) {
     return null;
   }
 });
+
+/// 根 ProviderContainer：main() 显式创建后赋值。
+/// 用在「没有 context、也不在 provider build 内」的入口——
+/// 目前仅 JM 任务恢复：闪退/被杀后把中断的下载自动续跑。
+/// 测试里不赋值则为 null，恢复逻辑跳过续跑（清扫仍执行）。
+ProviderContainer? rootContainer;

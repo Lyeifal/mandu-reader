@@ -7,6 +7,12 @@
 >           2026-10-02 明确 cover 前缀契约（§4.1）与 App 端索引写入范围（§3 单写入者约定的例外）
 >           2026-10-02 事件同步落地（§5）、批量上传与任务队列（§8.3）、压缩人工审阅（§14.4）
 >           2026-10-03 事件日志折叠落地（§5）；§6/§7/§8.3/§11 标注实现状态
+>           2026-10-03 §14.6：JM 下载任务持久化与中断续跑；解码移出主 isolate；设置页目录选择器
+>           2026-10-03 M3/M4 完成：双页对开、漫画书签 UI、护眼自定义+定时切换+图片背景、字体导入（_fonts/ 桶同步）、书内搜索（§6/§7/§11 状态刷新；reader_page.dart 拆为 part 文件）
+>           2026-10-04 仓库根目录改名 mandu_reader（纯 ASCII，subst Z: workaround 退役；AGENTS/README 同步）
+>           2026-10-04 M7 打磨完成：FTS 接通（写洞五处补齐/语法糖/3 字符下限）、启动缓存修剪、清扫去重、release 双端出包（§9/§11 状态刷新）
+>           2026-10-04 M6 收尾：源追更不做（用户决策）；清本地入口确认已有；_novel_cache 失效落地（上传即清缓存）
+>           2026-10-04 M5 书源引擎落地（so-novel 规则数据 + Dart 重写引擎 + 找书页签 + 源管理 + 巡检 harness，§8/§11 状态刷新；drift v4）
 
 ---
 
@@ -68,8 +74,8 @@
 ### 2.2 仓库布局
 
 ```
-comics&book/
-  app/                  # Flutter 工程（根目录名含 &，工程放子目录规避工具链坑）
+mandu_reader/         # 2026-10-04 由 comics&book 改名（纯 ASCII，subst Z: 退役）
+  app/                  # Flutter 工程
     lib/{core,data,features}/
     test/
   pkgs/mandu_core/      # 纯 Dart 核心：桶契约/索引合并/AVIF 策略/重试/works.jsonl 解析
@@ -207,7 +213,7 @@ library/
 
 ## 6. 漫画阅读器
 
-> 落地状态（2026-10-03）：竖向连续滚动（双指缩放全局同步）与横/竖逐页模式、边缘点按翻页、自动翻页（1–3600s 自定义）、页码滑杆/数字跳转、页签记忆均已实现；进度自动保存/恢复（退出写事件，见 §5）。**未做**：双页对开、漫画书签 UI（书签事件与重放已就绪，缺阅读器内入口）。
+> 落地状态（2026-10-03）：竖向连续滚动（双指缩放全局同步）与横/竖逐页模式、边缘点按翻页、自动翻页（1–3600s 自定义）、页码滑杆/数字跳转、页签记忆、进度自动保存/恢复（退出写事件，见 §5）均已实现。**双页对开已落地**：仅横翻模式生效，宽高比≥1.4 判横图独占一个 spread（探测经 ImageProvider 引擎编解码 + 顺序单发队列 + 「当前首 −2~+9」有界窗口，不全量解码），乐观两两配对、结果回流后锚定首页面码重映射不跳页；缩放控制器锚左页，分裂重建后仍对应同一页。**漫画书签 UI 已落地**：底栏「书签」+ 右上角计数药丸（与自动翻页药丸错位），缩略图取页面源同一缓存，loc=`{"page":N}`（1 基，与进度同坐标系），事件与重放链路复用小说侧。M3 完成。
 
 ### 6.1 阅读模式
 
@@ -233,7 +239,7 @@ library/
 
 ## 7. 小说阅读器
 
-> 落地状态（2026-10-03）：滚动/逐页两种翻页（真实折行分页，进度坐标=段落号）、三套主题预设、字号/亮度、章节列表（文件或正则推导）、书签增删（事件化）、进度自动保存/恢复已实现。**未做**：护眼色自定义与定时切换、字体导入（`_fonts/`）、书内搜索。
+> 落地状态（2026-10-03）：滚动/逐页两种翻页（真实折行分页，进度坐标=段落号）、进度自动保存/恢复、章节列表、书签增删（事件化）均已实现。**护眼已完整**：四预设（新增护眼绿 #C7EDCC/#3A4A3C）+ 自定义背景/文字色（色盘 + 十六进制，键 `reader.novel.customBg/customFg`，主题选「自定义」生效）+ 图片背景（桌面端选图复制进应用私有目录，缺失静默回退纯色）+ 定时切换（关/跟随系统深色/按时段含跨零点，阅读器内每分钟评估，生效主题=定时覆盖 ?? 手动预设）。**字体已落地（导入 + 桶同步档）**：`library/_fonts/` 为唯一字体库，拉缺/补缺双向幂等同步到 `localRoot/_font_cache/`，FontLoader 动态加载，family 名 `fontFamilyFor` 清洗生成；桌面端设置页导入 .ttf/.otf 自动推桶，Android 经同步获得（SAF 不可本地导入）；`paginateNovel` 以 widthFactor=0.95 给自定义字体留字宽安全边。内置 3 款 OFL 字体因网络受限未捆绑，后续补。**书内搜索已落地**：内存子串扫描（大小写不敏感、段内/总量双封顶），结果列表高亮命中词，点击 `_jumpToPara` 跳转（设计 §9 未要求正文内高亮，不做）。M4 完成。
 
 ### 7.1 护眼模式
 
@@ -263,6 +269,8 @@ library/
 仿真翻页（覆盖）/ 左右平移 / 上下滚动 三种，进度坐标均为字符 offset，切换翻页方式不丢进度。
 
 ## 8. 小说源系统（导入书源 + 下载 + 上传决策）
+
+> 落地状态（2026-10-04，M5）：引擎已落地——规则数据派生自 so-novel（25 源，AGPL 致谢见 assets/rules/NOTICE.md），Dart 引擎零 Flutter 依赖（`features/source/`），`@js:` 全量移植为 `@op:` 算子（不引 JS 运行时）；书架第四页签「找书」聚合搜索 → 详情 → 选章范围 → 下载到书架（staging 幂等补章 + novel_tasks 持久化续跑）；产物 = 本地三件套 + §4.2 meta.json（source 回溯块，M6 追更输入已备好）；`/sources` 源管理（启停/导入/单源测试）；`dart run tool/source_doctor.dart` 真实联网巡检。**巡检放行已做（2026-10-04 打磨）**：全量巡检 5/22 通过（梦书/鸟书网/笔尖中文/悠久/阅读库）；sources.json 固化结果——8 源启用（5 实测通过 + 3 无搜索源未实测）、17 源禁用并带原因（11 巡检实锤死源/失效 + 4 需代理本机未配置 + 3 CF），标注进 `tools/convert_rules.py` 的 DOCTOR_DISABLED 表（重跑转换器不丢）；修了一个真 bug：纯 `@op:` 链（@ 在位置 0，无选择器段）此前不会执行（全本搜索签名插件没跑），已修+回归测试。源管理页显示每源最近测试结果；详情弹层错误可重试、下载按钮识别「下载中/已在书架」。**未做**：legado 方言转换器、简繁转换（101看书繁体直存）。工作流与坑见 AGENTS.md「书源引擎（M5）速查」。
 
 ### 8.1 书源格式
 
@@ -307,7 +315,7 @@ library/
 
 ### 8.3 上传决策（用户自己决定）
 
-> 落地状态（2026-10-02）：三条路径中的「上传归档」已完整实现——作品详情「上传到云端」与书架长按多选批量上传（漫画页面 / 小说 book.txt+封面+章节表）共用任务队列（排队/进度/失败重试，面板与 JM 下载合并展示）；索引写入经 `mergeIndexLine` 滤同 id 旧行，重复上传幂等。「仅本设备」即 localOnly 行（下载与 epub 导入的默认），「以后再说」= 详情页按钮常驻。**未做**：上传后清理本地副本的选项、epub 原件随传。
+> 落地状态（2026-10-02）：三条路径中的「上传归档」已完整实现——作品详情「上传到云端」与书架长按多选批量上传（漫画页面 / 小说 book.txt+封面+章节表）共用任务队列（排队/进度/失败重试，面板与 JM 下载合并展示）；索引写入经 `mergeIndexLine` 滤同 id 旧行，重复上传幂等。「仅本设备」即 localOnly 行（下载与 epub 导入的默认），「以后再说」= 详情页按钮常驻。**上传后清本地**：作品信息弹层「删除本地」入口（localOnly 删文件+记录；云端书删本地副本与缓存、云端保留），2026-10-04 确认已覆盖 M6 需求。**未做**：epub 原件随传、源追更（用户决策不做）。
 
 | 选择 | 行为 |
 |---|---|
@@ -322,7 +330,7 @@ library/
 
 ## 9. 检索
 
-- **书架级**：标题/作者/别名/标签/状态（连载·完结）/类型，本地 FTS5（trigram）毫秒级。
+> 落地状态（2026-10-04，M7）：FTS5 查询端已接通——关键词先查 works_fts（trigram 子串，≥3 字符，覆盖**含标签**全五列）再 ∪ LIKE 并集兜底（旧数据无 fts 行也搜得到）；查询词不足 3 字符自动回退 LIKE。写侧统一 [upsertWorkFts]（fts_helper.dart）：云端同步/本地登记/书源下载/epub 导入/手动加标签 全路径不漏写。组合语法糖落地：搜索框 `type:novel tag:奇幻 status:ongoing 作者:xx` 前缀自动映射过滤列（parseFilterTokens）。书架级：标题/作者/别名/标签/状态（连载·完结）/类型，本地 FTS5（trigram）毫秒级。
   - 虚表：`works_fts USING fts5(title, title_jp, author, series, tags, tokenize='trigram')`，与 `works` 表外键关联，增删改时同步维护。
   - trigram 对中文按 UTF-8 三字节滑窗，1 个汉字即可匹配；SQLite ≥ 3.34 支持。
 - **书内搜索**：选中书后对本地 txt 内存子串扫描（百万字几十毫秒），高亮结果列表点击跳转。
@@ -346,11 +354,11 @@ settings 表结构：`key TEXT PK, value TEXT, scope TEXT('device'|'synced'), up
 
 1. **M1 桶链路** ✅（2026-09-28 完成）：凭证 + PIN、MinIO SDK 连通、_index 同步、本地 SQLite。同步策略：HEAD 取 etag → 未变零流量；变了**整文件拉取 + 按 id 幂等合并**（字节区间增量曾实现后回退——水位无法感知已消费区段的同长度改写；字节级增量留 M7，届时由写入者加 generation 头）。详见下方细化验收。
 2. **M2 阅读器骨架** ✅（2026-10）：漫画竖滑（缩放同步）+ 横/竖逐页、自动翻页、页码跳转；小说滚动/逐页真实分页、主题预设、章节、书签。
-3. **M3 漫画完整** 🟡：横翻 ✅ / 自动翻页(可调时) ✅ / 进度事件化 ✅；**未做**：双页对开、漫画书签 UI（事件与重放已就绪）。开工前 spike：InteractiveViewer 自建缩放层跟手度。
-4. **M4 小说完整** 🟡：护眼预设 ✅ / 章节 ✅ / 书签 ✅ / 进度 ✅；**未做**：自定义护眼与定时切换、字体导入(_fonts)、书内搜索。
-5. **M5 书源引擎**：规则解析器、源管理、搜索聚合、章节下载清洗。
-6. **M6 追更与归档** 🟡：上传归档（详情页 + 长按批量、漫画/小说、任务队列与重试）✅（§8.3）；**未做**：源追更增量更新、上传后清本地、`_novel_cache` 失效。
-7. **M7 打磨**：FTS 调优、缓存清理策略、Android 打包、桌面端出包。
+3. **M3 漫画完整** ✅（2026-10-03）：横翻 / 自动翻页(可调时) / 进度事件化 / 双页对开（横图探测 + spread 乐观配对）/ 漫画书签 UI 全部落地。InteractiveViewer 自建缩放层已随 M2 落地（缩放全局同步、panEnabled 绑缩放态）。详见 §6 落地状态。
+4. **M4 小说完整** ✅（2026-10-03）：护眼四预设 / 章节 / 书签 / 进度 / 自定义颜色 / 定时切换 / 图片背景 / 字体导入（_fonts/ 同步，内置字体捆绑因网络受限推迟）/ 书内搜索 全部落地。详见 §7 落地状态。
+5. **M5 书源引擎** ✅（2026-10-04 落地并巡检放行，8 源启用/17 禁用带因）：规则体系派生自 so-novel（AGPL-3.0，25 源规则数据进 assets/rules/ + NOTICE.md 致谢，`tools/convert_rules.py` 一次性转换）；Dart 引擎零 Flutter 依赖（`features/source/`：source_models/loader/selector/xpath/css/ops/http/search/book/toc/chapter/cleaner/assembly/pipeline/probe），so-novel 的 18 处 `@js:` 全部移植为 `@op:` 具名算子（replace/regexReplace/prefix/absUrl/base64Lines/qsbs 系/jsonpField/ddSortByDataId/filterHiddenLis/quanbenSearchUrl），不引 JS 运行时；自写迷你 CSS 引擎（package:html 缺 `:nth-of-type`/`~` 支持）+ 最小 XPath 子集（真 XPath 仅 4 处）。下载管线：staging tmp 幂等补章 + 有界并发 + 每章 withRetry，缺章清单续跑；产物 = 本地三件套 + §4.2 meta.json（source 回溯块供 M6 追更）。任务体系对齐 JmTasks（drift v4 novel_tasks 持久化/续跑/面板第三段/角标三源求和）；UI = 书架第四页签「找书」+ `/sources` 源管理（启停/导入 JSON/单源测试）。CF 三源默认禁用（运行时标题检测自动禁用）；101看书繁体直存不转换。**巡检**：`dart run tool/source_doctor.dart [--source slug]`（真实联网四步，不进 flutter test）；试跑 yeudusk 全链路通过。**未做**：全量 25 源巡检放行（需逐个跑 source_doctor 并按结果启停，源站存活率随时间变化）、legado 方言转换器、单源探针书按需扩充。
+6. **M6 追更与归档** ✅（2026-10-04 收尾）：上传归档（详情页 + 长按批量、漫画/小说、任务队列与重试）✅（§8.3）；「上传后清本地」**入口早已存在**（作品信息弹层「删除本地」：localOnly 连记录删、云端书只删本地文件与阅读缓存，shelf_page `_deleteLocal`），无需重复建设；`_novel_cache` 失效已落地——`uploadNovel` 成功即删 `<root>/_novel_cache/<id>/`（该缓存只写不更新，清后下次打开重拉新内容，有单测）。**源追更（源站增量更新）经用户决策不做**（2026-10-04）：M5 下载已带 source 回溯块（meta.json），将来若反悔可直接基于它实现，无需返工。
+7. **M7 打磨** ✅（2026-10-04）：FTS 调优（查询端接通 + 五处写洞补齐 + 语法糖，见 §9 落地状态）；缓存清理策略（启动修剪：图片缓存按 `cache.imageLimitMb` LRU 淘汰、`_novel_cache` 512MB LRU、审阅残留整删，cache_prune.dart；`_font_cache` 不淘汰）；启动清扫去重（JM/书源两个恢复入口会话级只跑一次）；封面解码 cacheWidth 340；图片下载共享 HttpClient；release 双端出包验证（Android debug 签名自用、Windows release 走 ATL 已验证路径）。
 
 计划外已落地：**JM 漫画下载 + AVIF 压缩管线**（2026-09-29/30，§14）、**阅读进度/书签事件同步与日志折叠**（2026-10-02，§5）、**批量上传与任务队列**（§8.3）、**压缩人工审阅**（2026-10-02，§14.4）。
 
@@ -360,7 +368,7 @@ settings 表结构：`key TEXT PK, value TEXT, scope TEXT('device'|'synced'), up
 2. works.jsonl 全量拉取解析入库；坏行跳过且计数可见。
 3. 二次启动同步：etag 未变零流量；有变化整文件拉取按 id 幂等合并，无重复行，`local_only` 行不受影响。
 4. PIN 设置/解锁流程闭环；SK 经 PIN 派生密钥 AES-256-CBC + HMAC-SHA256 加密落盘，解锁后可解密使用，错误 PIN 解不开（PBKDF2 以 RFC 7914 向量单测验证）。
-5. `flutter analyze` 零告警、`flutter test` 全绿（本机经 `subst Z:` 盘符运行，原因见 README）。
+5. `flutter analyze` 零告警、`flutter test` 全绿（直接在真实路径运行；根目录已改纯 ASCII，历史上的 `subst Z:` 盘符 workaround 已退役，见 README）。
 
 ## 12. 风险与验收
 
@@ -438,3 +446,19 @@ settings 表结构：`key TEXT PK, value TEXT, scope TEXT('device'|'synced'), up
 `tools/compress_worker/`：常驻 CLI，把「云端兜底压缩」从 PC 手动任务升级为独立服务。与 §14.2 云端路径**同参数同判定**（crf 45 + worthReplacing），区别只在选目标：读桶里的 works.jsonl 筛 `type=manga && !local_only && !compressed`（桶即真相，不依赖任何设备的 SQLite），逐本下载→转码→判定→替换→回写 `compressed` 标记与派生封面；全 AVIF 的历史作品首轮自动补标。轮询间隔可配（默认 10 分钟），`ONESHOT=1` 可单轮退出。
 
 共享代码在 `pkgs/mandu_core/`（纯 Dart，零 Flutter 依赖与 build hooks）：App 侧对应路径是 re-export shim，实现改动只发生在 pkgs/。部署形态：Linux 单二进制 + systemd（推荐）或 Windows 任务计划；凭证走环境变量，与 App 凭证同一最小权限集。手机/PC 传完原图即可关 App，压缩由常开机器完成——「无服务端」指数据面不经中转，Worker 不存数据不当权威，与设计 §2 的桌面整理工具同角色。
+
+### 14.6 下载任务持久化与中断恢复（2026-10-03 增补）
+
+任务队列此前是纯内存 Riverpod 态，应用被杀/闪退即丢。落地：
+
+- drift v3 新增 `jm_tasks` 表（albumId PK + 状态/阶段/错误/结果/配置快照/updatedAt）；`jmTasksProvider` 每次 upsert/patch/remove 同步落库（进度文案节流 2s，终态必落）。
+- 启动时（书架角标监听触发 provider `build()`）恢复任务列表；状态为 downloading/compressing 的任务**自动续跑**（整条管线幂等：本地目录重铺、行 upsert、压缩就地替换，重入安全）；续跑入口用 `main()` 显式创建并赋值的全局 `rootContainer`（无 context 场景读写 providers）。
+- 恢复时顺手**清扫半成品记录**：下载中断留下的「行还在、文件没了」的 localOnly 作品直接删行（点开必报错，见 `local_sweep.dart` 的 `classifyLocalWork` 纯判定 + 单测）；文件健在但行是早期元数据回调登记的半成品（pages=0/无封面）时补齐字段。进行中任务的 id 传入排除集，防止误删。
+
+### 14.7 解码移出主 isolate（2026-10-03 增补）
+
+JM 图片「解码 → 条带还原 → JPEG 重编码」（image 包，纯 Dart 逐像素）原先在**主 isolate** 以 30 并发执行，下载期间浏览/翻页全程掉帧。现经 `Isolate.run` 逐页进独立 isolate（`jm_downloader._decodeInIsolate`），图级并发收敛到 8（4 章 × 8，对 CPU 与 CDN 都更友好）。jm_scramble 保持纯函数零 Flutter 依赖，单测不变。
+
+### 14.8 设置页目录选择器（2026-10-03 增补）
+
+本地下载目录不再手输：应用内目录选择器（`settings/directory_picker.dart`）。Android 硬约束下只列应用私有目录（SAF 的 content:// 路径无法被 dart:io 使用，公共目录 Android 10+ 禁直接文件 IO）；桌面端从 home/盘符根自由浏览，支持新建文件夹。保存后 `localRootProvider` 即失效刷新。

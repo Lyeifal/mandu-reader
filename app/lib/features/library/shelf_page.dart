@@ -12,14 +12,17 @@ import '../../data/db/app_database.dart';
 import '../downloader/cloud_compress.dart';
 import '../downloader/compress_review.dart';
 import '../downloader/display_image.dart';
-import '../downloader/jm_download_dialog.dart';
 import '../downloader/jm_pipeline.dart';
 import '../downloader/jm_tasks.dart';
 import '../jm/jm_browse.dart';
+import '../source/source_tasks.dart';
+import '../source/ui/source_browse_view.dart';
+import '../source/ui/source_manage_page.dart';
 import '../providers.dart';
 import '../settings/settings_page.dart';
 import 'index_sync.dart';
 import 'events_log.dart';
+import 'fts_helper.dart';
 import 'shelf_add_dialog.dart';
 import 'shelf_filter_panel.dart';
 import 'shelf_query.dart';
@@ -52,6 +55,10 @@ class ShelfPage extends ConsumerStatefulWidget {
 
 class _ShelfPageState extends ConsumerState<ShelfPage> {
   final _search = TextEditingController();
+
+  /// 语法糖会话态：糖改过的过滤列 → (修改前值, 糖写入值)；tag 糖加入的标签集
+  final Map<String, ({String? prev, String? applied})> _sugarPrev = {};
+  final Set<String> _sugarTags = {};
   Timer? _debounce;
   bool _syncing = false;
   bool _panelOpen = true;
@@ -97,10 +104,58 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 300), () {
       final filter = ref.read(shelfFilterProvider);
-      if (filter.query != value) {
-        ref
-            .read(shelfFilterProvider.notifier)
-            .apply(filter.copyWith(query: value));
+      // 语法糖（设计 §9）：type:/tag:/status:/作者: 前缀映射为过滤列，剩余作关键词。
+      // 糖是「会话临时覆盖」语义：token 从输入里消失时回滚它改过的列
+      // （否则删掉 type:novel 后过滤列永久卡在 novel，与页签显示脱节）。
+      final parsed = parseFilterTokens(value);
+      var next = filter.copyWith(query: parsed.keyword);
+
+      String? applySugar(String key, String? token, String? current) {
+        final rec = _sugarPrev[key];
+        if (token == null) {
+          if (rec != null) {
+            _sugarPrev.remove(key);
+            // 糖写入后用户没在筛选面板手动改过才回滚（面板改动优先）
+            return current == rec.applied ? rec.prev : current;
+          }
+          return current;
+        }
+        if (rec == null) {
+          _sugarPrev[key] = (prev: current, applied: token);
+        }
+        return token;
+      }
+
+      next = next.copyWith(
+        type: applySugar('type', parsed.type, filter.type),
+        status: applySugar('status', parsed.status, filter.status),
+        author: applySugar('author', parsed.author, filter.author),
+      );
+      // tag 糖：仅在该标签尚未被面板选中时加入（AND 模式）
+      if (parsed.tag != null && next.tagModes[parsed.tag!] == null) {
+        _sugarTags.add(parsed.tag!);
+        next = next.copyWith(
+          tagModes: {...next.tagModes, parsed.tag!: TagMode.and},
+        );
+      } else if (parsed.tag == null && _sugarTags.isNotEmpty) {
+        final modes = Map.of(next.tagModes);
+        var changed = false;
+        for (final t in _sugarTags.toList()) {
+          // 只移除糖加入且未被面板改过的（值仍是 AND）
+          if (modes[t] == TagMode.and) {
+            modes.remove(t);
+            _sugarTags.remove(t);
+            changed = true;
+          }
+        }
+        if (changed) next = next.copyWith(tagModes: modes);
+      }
+      if (next.query != filter.query ||
+          next.type != filter.type ||
+          next.status != filter.status ||
+          next.author != filter.author ||
+          next.tagModes.length != filter.tagModes.length) {
+        ref.read(shelfFilterProvider.notifier).apply(next);
         ref.read(shelfPageProvider.notifier).go(1);
         // 搜索词计入历史标签排序
         if (value.trim().isNotEmpty) pushRecentQuery(ref, value);
@@ -112,7 +167,7 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
     if (tab == _tab) return;
     setState(() => _tab = tab);
     unawaited(ref.read(settingsRepositoryProvider).set('shelf.tab', tab));
-    if (tab == 'jm') return;
+    if (tab == 'jm' || tab == 'src') return;
     final filter = ref.read(shelfFilterProvider);
     if (filter.type != tab) {
       ref.read(shelfFilterProvider.notifier).apply(filter.copyWith(type: tab));
@@ -242,7 +297,7 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
     final total = ref.watch(shelfTotalProvider).value ?? 0;
     final filter = ref.watch(shelfFilterProvider);
     final compressState = ref.watch(cloudCompressProvider);
-    final type = _tab == 'jm'
+    final type = _isBrowseTab
         ? (filter.type.isEmpty ? 'manga' : filter.type)
         : _tab;
     var page = ref.watch(shelfPageProvider);
@@ -270,18 +325,10 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
               titleSpacing: 0,
               title: Row(
                 children: [
-                  if (_compact)
-                    const Text('书架', style: TextStyle(fontSize: 14))
-                  else
-                    const Text('书架'),
-                  if (_compact)
-                    const SizedBox(width: 8)
-                  else
-                    const SizedBox(width: 12),
                   _buildTabs(),
                   if (!_compact) ...[
                     const SizedBox(width: 12),
-                    if (_tab != 'jm')
+                    if (!_isBrowseTab)
                       SizedBox(width: 260, child: _buildSearch()),
                   ],
                 ],
@@ -302,8 +349,8 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
                             child: Text('添加作品'),
                           ),
                           const PopupMenuItem(
-                            value: 'jm',
-                            child: Text('JM 下载'),
+                            value: 'sources',
+                            child: Text('书源管理'),
                           ),
                           const PopupMenuItem(
                             value: 'tasks',
@@ -350,21 +397,17 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
                         icon: const Icon(Icons.add),
                         onPressed: () => _addWork(type),
                       ),
-                      IconButton(
-                        tooltip: 'JM 下载',
-                        icon: const Icon(Icons.cloud_download),
-                        onPressed: () => showDialog<void>(
-                          context: context,
-                          builder: (context) => const JmDownloadDialog(),
-                        ),
-                      ),
+
                       Consumer(
                         builder: (context, ref, child) {
                           final jmActive = ref.watch(activeJmTaskCountProvider);
                           final upActive = ref.watch(
                             activeUploadTaskCountProvider,
                           );
-                          final active = jmActive + upActive;
+                          final nvActive = ref.watch(
+                            activeNovelTaskCountProvider,
+                          );
+                          final active = jmActive + upActive + nvActive;
                           return Badge.count(
                             count: active,
                             isLabelVisible: active > 0,
@@ -418,8 +461,8 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
         children: [
           AnimatedContainer(
             duration: const Duration(milliseconds: 180),
-            width: _panelOpen && _tab != 'jm' ? 232 : 0,
-            child: _panelOpen && _tab != 'jm'
+            width: _panelOpen && !_isBrowseTab ? 232 : 0,
+            child: _panelOpen && !_isBrowseTab
                 ? const ShelfFilterPanel()
                 : const SizedBox.shrink(),
           ),
@@ -427,7 +470,7 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
           Expanded(
             child: Column(
               children: [
-                if (_compact && _tab != 'jm')
+                if (_compact && !_isBrowseTab)
                   Padding(
                     padding: const EdgeInsets.fromLTRB(12, 8, 12, 2),
                     child: _buildSearch(),
@@ -435,6 +478,8 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
                 Expanded(
                   child: _tab == 'jm'
                       ? const JmBrowseView()
+                      : _tab == 'src'
+                      ? const SourceBrowseView()
                       : Column(
                           children: [
                             if (compressState.running ||
@@ -523,11 +568,15 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
 
   bool get _compact => MediaQuery.sizeOf(context).width < 600;
 
+  /// 浏览类页签（JM 漫画/书源找书）：无本地筛选，隐藏书架搜索框。
+  bool get _isBrowseTab => _tab == 'jm' || _tab == 'src';
+
   Widget _buildTabs() => SegmentedButton<String>(
     segments: const [
       ButtonSegment(value: 'manga', label: Text('漫画')),
       ButtonSegment(value: 'jm', label: Text('JM漫画')),
       ButtonSegment(value: 'novel', label: Text('小说')),
+      ButtonSegment(value: 'src', label: Text('找书')),
     ],
     selected: {_tab},
     // M3 选中段默认带对勾图标，且各段等宽：「JM漫画」+对勾会把三段一起
@@ -550,17 +599,14 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
 
   void _onMenu(String value) {
     final filter = ref.read(shelfFilterProvider);
-    final type = _tab == 'jm'
+    final type = _isBrowseTab
         ? (filter.type.isEmpty ? 'manga' : filter.type)
         : _tab;
     switch (value) {
       case 'add':
         _addWork(type);
-      case 'jm':
-        showDialog<void>(
-          context: context,
-          builder: (context) => const JmDownloadDialog(),
-        );
+      case 'sources':
+        context.go(SourceManagePage.path);
       case 'tasks':
         JmTasksSheet.show(context);
       case 'sync':
@@ -701,11 +747,13 @@ class _WorkCard extends ConsumerWidget {
                               coverSource.$1,
                               fit: BoxFit.cover,
                               fallback: _coverPlaceholder(work),
+                              cacheWidth: 340,
                             )
                           : displayLocalImage(
                               coverSource.$1,
                               fit: BoxFit.cover,
                               fallback: _coverPlaceholder(work),
+                              cacheWidth: 340,
                             )
                     else
                       _coverPlaceholder(work),
@@ -1219,6 +1267,20 @@ class _WorkInfoSheet extends ConsumerWidget {
     await (db.update(db.works)..where((t) => t.id.equals(work.id))).write(
       WorksCompanion(tags: Value(jsonEncode(merged))),
     );
+    // 关键词搜索（works_fts）同步维护：标签变更后重建索引行
+    try {
+      await upsertWorkFts(
+        db,
+        id: work.id,
+        title: work.title,
+        titleJp: work.titleJp,
+        author: work.author,
+        series: work.series,
+        tags: merged,
+      );
+    } on Object {
+      // 索引失败不挡加标签
+    }
     ref
       ..invalidate(shelfWorksProvider)
       ..invalidate(shelfTagsProvider);

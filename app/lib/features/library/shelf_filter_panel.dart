@@ -55,6 +55,43 @@ class _ShelfFilterPanelState extends ConsumerState<ShelfFilterPanel> {
   String _editing = '';
   int _editYear = DateTime.now().year;
 
+  /// 标签云「更多」展开态（历史/新增两组各自记忆）。
+  final Set<String> _tagsExpanded = {};
+
+  /// 折叠显示前 11 个；点「更多」再展开 19 个；全局面板最多展示 30 个。
+  static const _tagsCollapsedCount = 11;
+  static const _tagsMaxCount = 30;
+
+  List<({String tag, int count})> _cappedTags(
+    String key,
+    List<({String tag, int count})> tags,
+  ) {
+    if (tags.length <= _tagsCollapsedCount) return tags;
+    if (!_tagsExpanded.contains(key)) {
+      return tags.sublist(0, _tagsCollapsedCount);
+    }
+    return tags.length <= _tagsMaxCount ? tags : tags.sublist(0, _tagsMaxCount);
+  }
+
+  /// 「更多 / 收起」开关 chip；不超过折叠阈值时不出现。
+  Widget _tagsToggle(String key, List<({String tag, int count})> tags) {
+    if (tags.length <= _tagsCollapsedCount) return const SizedBox.shrink();
+    final expanded = _tagsExpanded.contains(key);
+    return ActionChip(
+      label: Text(
+        expanded
+            ? '收起'
+            : '更多 +${(tags.length > _tagsMaxCount ? _tagsMaxCount : tags.length) - _tagsCollapsedCount}',
+      ),
+      labelStyle: const TextStyle(fontSize: 11.5),
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      visualDensity: VisualDensity.compact,
+      onPressed: () => setState(
+        () => expanded ? _tagsExpanded.remove(key) : _tagsExpanded.add(key),
+      ),
+    );
+  }
+
   void _apply(ShelfFilter next) {
     ref.read(shelfFilterProvider.notifier).apply(next);
     ref.read(shelfPageProvider.notifier).go(1);
@@ -161,7 +198,12 @@ class _ShelfFilterPanelState extends ConsumerState<ShelfFilterPanel> {
                 style: theme.textTheme.bodySmall?.copyWith(fontSize: 11),
               )
             else
-              _tagCloud(context, history, filter),
+              _tagCloud(
+                context,
+                _cappedTags('history', history),
+                filter,
+                trailing: [_tagsToggle('history', history)],
+              ),
           ]),
           const SizedBox(height: 14),
           _group('新增标签', groupTitle, [
@@ -171,7 +213,12 @@ class _ShelfFilterPanelState extends ConsumerState<ShelfFilterPanel> {
                 style: theme.textTheme.bodySmall?.copyWith(fontSize: 11),
               )
             else
-              _tagCloud(context, fresh, filter),
+              _tagCloud(
+                context,
+                _cappedTags('fresh', fresh),
+                filter,
+                trailing: [_tagsToggle('fresh', fresh)],
+              ),
           ]),
           _group('时间', groupTitle, [
             Row(
@@ -534,11 +581,13 @@ class _ShelfFilterPanelState extends ConsumerState<ShelfFilterPanel> {
 
   /// 标签云：每个标签独立逻辑（或=蓝/非=红/与=绿）；
   /// 左键：未选中→选中（或），已选中→本标签循环 或→非→与；右键：取消选中。
+  /// [trailing] 追加在标签之后（「更多/收起」开关用）。
   Widget _tagCloud(
     BuildContext context,
     List<({String tag, int count})> tags,
-    ShelfFilter filter,
-  ) => Wrap(
+    ShelfFilter filter, {
+    List<Widget> trailing = const [],
+  }) => Wrap(
     spacing: 6,
     runSpacing: 6,
     children: [
@@ -582,6 +631,7 @@ class _ShelfFilterPanelState extends ConsumerState<ShelfFilterPanel> {
             },
           ),
         ),
+      ...trailing,
     ],
   );
 

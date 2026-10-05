@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 
@@ -16,7 +18,7 @@ class JmDartResult {
 }
 
 /// 纯 Dart 的 JM 下载编排（替代 Python 驱动）：
-/// 详情 → 逐 photo 并发拉图（章级信号量 CPU 数、图级 30）→ 还原 scramble → 写盘。
+/// 详情 → 逐 photo 并发拉图（章级信号量、图级并发）→ 还原 scramble → 写盘。
 ///
 /// 进度回调语义与旧驱动一致（任务列表直接用）。
 class JmDartDownloader {
@@ -25,7 +27,11 @@ class JmDartDownloader {
   final JmApiClient _client;
 
   static const _photoConcurrency = 4;
-  static const _imageConcurrency = 30;
+
+  /// 图级并发：解码+条带还原+JPEG 重编码在独立 isolate 执行（见
+  /// [_decodeInIsolate]），不阻塞 UI；并发仍收敛在个位数，避免把
+  /// CPU 占满影响浏览，也对 CDN 友好。
+  static const _imageConcurrency = 8;
 
   /// 下载整本到 [outDir]（调用方准备好的工作目录）。
   Future<JmDartResult> download(
@@ -120,7 +126,7 @@ class JmDartDownloader {
             : '${(i + 1).toString().padLeft(3, '0')}.$ext',
       );
       final data = doDecode
-          ? jmDecodeImage(
+          ? await _decodeInIsolate(
               bytes,
               jmScrambleNum(scrambleId, int.parse(photoId), baseOf(name)),
             )
@@ -145,6 +151,11 @@ class JmDartDownloader {
 
   static bool _needDecode(String filename) =>
       !filename.toLowerCase().endsWith('.gif');
+
+  /// 解码 + 条带还原 + 重编码整体进独立 isolate：image 包是纯 Dart 实现，
+  /// 在主 isolate 跑会让浏览/翻页全程掉帧（2026-10-03 实测卡顿根源）。
+  Future<Uint8List> _decodeInIsolate(Uint8List bytes, int num) =>
+      Isolate.run(() => jmDecodeImage(bytes, num));
 
   /// 限制并发的 map：保持输入顺序返回结果；单个失败即整体失败。
   Future<List<T>> _mapLimited<T, R>(

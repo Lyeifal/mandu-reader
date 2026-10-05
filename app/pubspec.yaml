@@ -44,6 +44,8 @@ dependencies:
   # 纯 Dart 核心（桶契约/索引合并/AVIF 策略/重试），实现见 ../pkgs/mandu_core
   mandu_core:
     path: ../pkgs/mandu_core
+  html: ^0.15.7
+  gbk_codec: ^0.4.0
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -57,6 +59,9 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  assets:
+    - assets/rules/
 
 # sqlite3 的 build hook 默认从 GitHub Releases 下载预编译库，本网络访问不通。
 # 经 gh-proxy 代理下载；代理失效时换一个可用代理或恢复官方地址即可。

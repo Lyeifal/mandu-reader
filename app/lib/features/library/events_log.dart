@@ -17,6 +17,25 @@ import 'works_index.dart' show BadLine;
 
 final _log = Logger('EventsLog');
 
+/// events.jsonl 的本地快照缓存：appendEvents 据此做「未变化直接写」短路
+/// （省一次全量 GET 与下载流量）。任何 put/外部变化后必须作废。
+String? _eventsEtagCache;
+String? _eventsContentCache;
+
+void _cacheEventsSnapshot(String? etag, String content) {
+  _eventsEtagCache = etag;
+  _eventsContentCache = content;
+}
+
+void _invalidateEventsSnapshot() {
+  _eventsEtagCache = null;
+  _eventsContentCache = null;
+}
+
+/// 测试用：模块级快照在单测间共享，需重置防串扰。
+@visibleForTesting
+void resetEventsSnapshotForTest() => _invalidateEventsSnapshot();
+
 /// events.jsonl 超过该体积时，同步流程顺手折叠（见 [compactEvents]）。
 const kEventsCompactThreshold = 256 * 1024;
 
@@ -320,10 +339,17 @@ Future<void> appendEvents(
   if (lines.isEmpty) return;
   var existing = '';
   try {
-    existing = utf8.decode(
-      await client.getAll(LibraryPaths.eventsLog),
-      allowMalformed: true,
-    );
+    final meta = await client.stat(LibraryPaths.eventsLog);
+    final unchanged =
+        meta.etag != null &&
+        meta.etag == _eventsEtagCache &&
+        _eventsContentCache != null;
+    existing = unchanged
+        ? _eventsContentCache!
+        : utf8.decode(
+            await client.getAll(LibraryPaths.eventsLog),
+            allowMalformed: true,
+          );
   } on ObjectNotFoundException {
     // 首个事件：文件还不存在
   }
@@ -336,6 +362,7 @@ Future<void> appendEvents(
     LibraryPaths.eventsLog,
     Uint8List.fromList(utf8.encode(buf.toString())),
   );
+  _invalidateEventsSnapshot();
 }
 
 /// 重放结果落库：本地行比事件新时保留本地（离线产生的数据不被旧事件
@@ -406,10 +433,13 @@ Future<EventSyncReport> syncEventsFromBucket({
   required AppDatabase db,
   required BucketClient client,
 }) async {
-  Uint8List? bytes;
+  // etag 短路：与本地快照一致则零下载（省一次全量 GET 与流量；
+  // 事件日志随进度事件增长，每次同步都拉全量是本项目的请求/流量放大点）。
+  String? remoteEtag;
   try {
-    bytes = await client.getAll(LibraryPaths.eventsLog);
+    remoteEtag = (await client.stat(LibraryPaths.eventsLog)).etag;
   } on ObjectNotFoundException {
+    _invalidateEventsSnapshot();
     return const EventSyncReport(
       progressCount: 0,
       bookmarkCount: 0,
@@ -417,7 +447,20 @@ Future<EventSyncReport> syncEventsFromBucket({
       badLines: [],
     );
   }
+  if (remoteEtag != null &&
+      remoteEtag == _eventsEtagCache &&
+      _eventsContentCache != null) {
+    return const EventSyncReport(
+      progressCount: 0,
+      bookmarkCount: 0,
+      deletedCount: 0,
+      badLines: [],
+    );
+  }
+
+  final bytes = await client.getAll(LibraryPaths.eventsLog);
   final content = utf8.decode(bytes, allowMalformed: true);
+  _cacheEventsSnapshot(remoteEtag, content);
   final (events, bad) = parseEventsLog(content);
   final r = replayEvents(events);
   await applyReplay(db, r);
@@ -443,6 +486,8 @@ Future<EventSyncReport> syncEventsFromBucket({
     } on Object catch (e) {
       _log.warning('events compact failed: $e');
     }
+    // 折叠已改写桶上内容（etag 必变），快照作废
+    _invalidateEventsSnapshot();
   }
 
   return EventSyncReport(

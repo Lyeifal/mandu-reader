@@ -39,3 +39,4 @@ app-debug.apk
 # --- compress_worker 构建产物 ---
 tools/compress_worker/build/
 tools/compress_worker/compress_worker
+tools/compress_worker/build.rar

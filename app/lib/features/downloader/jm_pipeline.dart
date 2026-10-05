@@ -11,6 +11,7 @@ import '../../data/db/app_database.dart';
 import '../bucket/bucket_client.dart';
 import '../bucket/path_helper.dart';
 import '../jm/jm_downloader.dart';
+import '../library/fts_helper.dart';
 import '../settings/settings_repository.dart';
 import 'avif_transcoder.dart';
 import 'jm_models.dart';
@@ -49,6 +50,9 @@ Future<String> resolveLocalRoot(SettingsRepository repo) async {
 /// JM 下载 → AVIF 压缩 → 本地登记（local_only）。上传独立决定：
 /// 详情页「上传到云端」走 [upload]，即设计文档 §8.3 的「上传归档」流程。
 class JmPipeline {
+  /// 上传并发度：限速链路下串行 PUT 会把每个 RTT 逐个叠加进总时长，
+  /// 有界并发摊薄之；开太大在弱网反而放大超时与整任务重试成本。
+  static const uploadConcurrency = 6;
   JmPipeline({JmTranscoder? transcoder, this.localRoot})
     : transcoder = transcoder ?? AvifTranscoder();
 
@@ -205,6 +209,15 @@ class JmPipeline {
     } else {
       await db.into(db.works).insertOnConflictUpdate(companion);
     }
+    // 关键词搜索（works_fts）同步维护：本地登记路径不漏写
+    await upsertWorkFts(
+      db,
+      id: 'jm_${meta.albumId}',
+      title: meta.title,
+      author: meta.author,
+      series: meta.series,
+      tags: meta.tags,
+    );
   }
 
   // ---------------------------------------------------------------- 上传
@@ -235,12 +248,27 @@ class JmPipeline {
       title: work.title,
       volume: work.volume ?? 1,
     );
-    for (var i = 0; i < files.length; i++) {
-      onProgress('上传 ${i + 1}/${files.length} 到桶…');
-      final ext = p.extension(files[i]).replaceFirst('.', '');
-      final key = LibraryPaths.mangaPage(bucketDir, i + 1, ext: ext);
-      await client.put(key, await File(files[i]).readAsBytes());
+    // 有界并发上传：单页瞬时失败走 withRetry 就地重试（幂等覆盖），
+    // 不打断整本；任一工作线程重试耗尽抛出时，Future.wait 默认等其余
+    // 在飞页落完再抛，不留后台写。
+    var next = 0; // 下一个待传下标；事件循环内自增无 await，无竞态
+    var done = 0;
+    Future<void> worker() async {
+      while (next < files.length) {
+        final i = next++;
+        final ext = p.extension(files[i]).replaceFirst('.', '');
+        final key = LibraryPaths.mangaPage(bucketDir, i + 1, ext: ext);
+        await withRetry<void>(
+          () async => client.put(key, await File(files[i]).readAsBytes()),
+          onRetry: (e, attempt) =>
+              onProgress('第 ${i + 1} 页上传失败，重试第 $attempt 次…'),
+        );
+        done++;
+        onProgress('上传 $done/${files.length} 到桶…');
+      }
     }
+
+    await Future.wait(List.generate(uploadConcurrency, (_) => worker()));
     final firstExt = p.extension(files.first).replaceFirst('.', '');
     final coverKey = '$bucketDir/cover.$firstExt';
     await client.put(coverKey, await File(files.first).readAsBytes());
@@ -322,6 +350,14 @@ class JmPipeline {
         cover: Value(coverKey.isEmpty ? work.cover : coverKey),
       ),
     );
+    // 云端内容已更新：失效本机阅读缓存（_novel_cache 只写不更新，
+    // 留着会让本机继续读旧书；下次打开自动重拉新内容）
+    try {
+      final cacheDir = Directory(p.join(root, '_novel_cache', work.id));
+      if (await cacheDir.exists()) await cacheDir.delete(recursive: true);
+    } on Object {
+      // 缓存清不掉不阻塞上传结果
+    }
     return bucketDir;
   }
 

@@ -25,7 +25,10 @@ class FakeBucketClient implements BucketClient {
   Future<ObjectMeta> stat(String key) {
     final data = objects[key];
     if (data == null) throw ObjectNotFoundException(key);
-    return Future.value(ObjectMeta(size: data.length, etag: 'x'));
+    // 内容派生 etag（put 换实例即变）——短路径测试需要真实的「内容变→etag 变」语义
+    return Future.value(
+      ObjectMeta(size: data.length, etag: data.hashCode.toString()),
+    );
   }
 
   @override
@@ -37,8 +40,13 @@ class FakeBucketClient implements BucketClient {
     return Future.value(Uint8List.fromList(data.sublist(s, e)));
   }
 
+  var getAllCalls = 0;
+
   @override
-  Future<Uint8List> getAll(String key) => getRange(key);
+  Future<Uint8List> getAll(String key) {
+    getAllCalls++;
+    return getRange(key);
+  }
 
   @override
   Future<void> put(String key, Uint8List data) async {
@@ -76,6 +84,8 @@ String line(Map<String, Object?> e) => jsonEncode(e);
 DateTime t(int second) => DateTime.utc(2026, 1, 1, 0, 0, second);
 
 void main() {
+  setUp(resetEventsSnapshotForTest);
+
   group('parseEventsLog', () {
     test('逐行解析：空行跳过、坏行收集、snapshot 行接受', () {
       final content = [
@@ -485,9 +495,9 @@ void main() {
       )..where((t) => t.id.equals('b1'))).getSingle();
       expect(bm.note, '要点');
 
-      // 再来一次：幂等，行数不变
+      // 再来一次：etag 短路（零下载零重放），数据行保持幂等不变
       final r2 = await syncEventsFromBucket(db: db, client: client);
-      expect(r2.progressCount, 1);
+      expect(r2.progressCount, 0); // 短路：未变化不重放
       expect(await db.select(db.readingProgress).get(), hasLength(1));
     });
 
@@ -541,6 +551,39 @@ void main() {
       )..where((t) => t.workId.equals('n1'))).getSingle();
       expect(jsonDecode(progress.loc)['para'], 999); // 本地较新，保留
       expect(await db.select(db.bookmarks).get(), isEmpty);
+    });
+
+    test('etag 短路：快照未变时二次同步不再 getAll；append 后需重拉', () async {
+      final db = AppDatabase(NativeDatabase.memory());
+      final client = FakeBucketClient();
+      client.seed(
+        LibraryPaths.eventsLog,
+        line({
+          'ts': t(1).toIso8601String(),
+          'dev': 'pc',
+          'type': 'manga_progress',
+          'work': 'm1',
+          'loc': {'page': 3},
+        }),
+      );
+
+      await syncEventsFromBucket(db: db, client: client);
+      final getsAfterFirst = client.getAllCalls;
+      expect(getsAfterFirst, greaterThan(0));
+
+      // 第二次同步：etag 未变 → 零下载
+      final report2 = await syncEventsFromBucket(db: db, client: client);
+      expect(client.getAllCalls, getsAfterFirst);
+      expect(report2.progressCount, 0);
+
+      // 追加事件（put 后快照作废）→ 第三次同步必须重新拉取
+      await appendEvents(client, [
+        bookmarkEvent(dev: 'phone', id: 'b1', work: 'm1', loc: {'page': 4}),
+      ]);
+      final report3 = await syncEventsFromBucket(db: db, client: client);
+      expect(client.getAllCalls, getsAfterFirst + 1);
+      expect(report3.bookmarkCount, 1);
+      await db.close();
     });
   });
 }
