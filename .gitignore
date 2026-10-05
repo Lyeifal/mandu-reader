@@ -40,3 +40,6 @@ app-debug.apk
 tools/compress_worker/build/
 tools/compress_worker/compress_worker
 tools/compress_worker/build.rar
+
+# --- 本机专用文件（含个人路径/设备信息，不发布） ---
+README.local.md
