@@ -36,6 +36,7 @@ class ShelfFilter {
     this.timeField = TimeField.published,
     this.timeFrom = '',
     this.timeTo = '',
+    this.collectionId = 0,
   });
 
   /// '' | novel | manga（顶部页签；解锁默认进小说）
@@ -68,6 +69,9 @@ class ShelfFilter {
   final String timeFrom;
   final String timeTo;
 
+  /// 漫画收藏夹：0 全部，-1 未归类，正数为收藏夹 id。
+  final int collectionId;
+
   static const empty = ShelfFilter();
 
   bool get isDefault =>
@@ -79,7 +83,8 @@ class ShelfFilter {
       hasZh.isEmpty &&
       zhQuality.isEmpty &&
       timeFrom.isEmpty &&
-      timeTo.isEmpty;
+      timeTo.isEmpty &&
+      (type != 'manga' || collectionId == 0);
 
   bool get hasTimeRange => timeFrom.isNotEmpty || timeTo.isNotEmpty;
 
@@ -97,6 +102,7 @@ class ShelfFilter {
     TimeField? timeField,
     String? timeFrom,
     String? timeTo,
+    int? collectionId,
   }) => ShelfFilter(
     type: type ?? this.type,
     novelCat: novelCat ?? this.novelCat,
@@ -111,6 +117,7 @@ class ShelfFilter {
     timeField: timeField ?? this.timeField,
     timeFrom: timeFrom ?? this.timeFrom,
     timeTo: timeTo ?? this.timeTo,
+    collectionId: collectionId ?? this.collectionId,
   );
 
   @override
@@ -128,7 +135,8 @@ class ShelfFilter {
       other.zhQuality == zhQuality &&
       other.timeField == timeField &&
       other.timeFrom == timeFrom &&
-      other.timeTo == timeTo;
+      other.timeTo == timeTo &&
+      other.collectionId == collectionId;
 
   @override
   int get hashCode => Object.hash(
@@ -145,6 +153,7 @@ class ShelfFilter {
     timeField,
     timeFrom,
     timeTo,
+    collectionId,
   );
 }
 
@@ -195,6 +204,12 @@ String _likeLiteral(String s) => s.replaceAll(RegExp('[%_]'), '');
 Expression<bool>? _where($WorksTable t, ShelfFilter f, Set<String>? ftsIds) {
   final conds = <Expression<bool>>[];
   if (f.type.isNotEmpty) conds.add(t.type.equals(f.type));
+  if (f.type == 'manga' && f.collectionId != 0) {
+    final sql = f.collectionId < 0
+        ? 'NOT EXISTS (SELECT 1 FROM manga_collection_entries e WHERE e.work_id = works.id)'
+        : 'EXISTS (SELECT 1 FROM manga_collection_entries e WHERE e.work_id = works.id AND e.collection_id = ${f.collectionId})';
+    conds.add(CustomExpression<bool>(sql));
+  }
   if (f.type == 'novel' && f.novelCat.isNotEmpty) {
     // 小说分类按标签匹配（起点/番茄风格分类，给作品打上对应标签即归入）
     conds.add(t.tags.like('%${_likeLiteral(f.novelCat)}%'));
@@ -313,26 +328,48 @@ Future<List<Work>> _runQuery(
 final shelfWorksCacheProvider =
     Provider<Map<(ShelfFilter, int, int), List<Work>>>((ref) => {});
 
+class _ShelfCacheEpoch extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void bump() => state++;
+}
+
+final shelfCacheEpochProvider = NotifierProvider<_ShelfCacheEpoch, int>(
+  _ShelfCacheEpoch.new,
+);
+
 class _ShelfWorksNotifier extends AsyncNotifier<List<Work>> {
   (ShelfFilter, int, int)? _current;
 
   @override
   Future<List<Work>> build() async {
+    final epoch = ref.watch(shelfCacheEpochProvider);
     final key = ref.watch(shelfQueryProvider);
     _current = key;
+    final db = ref.read(appDatabaseProvider);
     final cache = ref.watch(shelfWorksCacheProvider);
     final hit = cache[key];
     if (hit != null) {
       // 缓存命中：先出旧数据，后台静默刷新
       Future(() async {
-        final fresh = await _runQuery(ref.read(appDatabaseProvider), key);
-        cache[key] = fresh;
-        if (key == _current && ref.mounted) state = AsyncData(fresh);
+        try {
+          final fresh = await _runQuery(db, key);
+          if (!ref.mounted || epoch != ref.read(shelfCacheEpochProvider)) {
+            return;
+          }
+          cache[key] = fresh;
+          if (key == _current) state = AsyncData(fresh);
+        } on Object {
+          // 后台刷新失败时保留已显示的缓存结果。
+        }
       });
       return hit;
     }
-    final list = await _runQuery(ref.read(appDatabaseProvider), key);
-    cache[key] = list;
+    final list = await _runQuery(db, key);
+    if (ref.mounted && epoch == ref.read(shelfCacheEpochProvider)) {
+      cache[key] = list;
+    }
     return list;
   }
 }

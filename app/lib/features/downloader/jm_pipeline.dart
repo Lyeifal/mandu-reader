@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -68,8 +69,8 @@ class JmPipeline {
   Future<JmLocalResult> download({
     required String albumId,
     String proxy = '',
-    void Function(JmAlbumMeta meta)? onMeta,
-    void Function(JmLocalResult result)? onLocalReady,
+    FutureOr<void> Function(JmAlbumMeta meta)? onMeta,
+    FutureOr<void> Function(JmLocalResult result)? onLocalReady,
     void Function(int done, int total, int kept)? onCompressProgress,
     required void Function(String phase) onProgress,
   }) async {
@@ -77,12 +78,13 @@ class JmPipeline {
     final tmp = await getTemporaryDirectory();
     final workDir = Directory(p.join(tmp.path, 'jm_download', 'jm_$albumId'));
     await workDir.create(recursive: true);
+    var completed = false;
     try {
       // 纯 Dart 下载：详情 + 并发拉图 + scramble 还原（不再需要 Python）
       final result = await JmDartDownloader(proxy: proxy)
           .download(albumId, workDir.path, onProgress: onProgress);
       final meta = result.meta;
-      onMeta?.call(meta);
+      if (onMeta != null) await onMeta(meta);
 
       // 1) 原图立即落本地目录——不等压缩，用户马上可读
       onProgress('原图入库 ${result.files.length} 页…');
@@ -92,13 +94,15 @@ class JmPipeline {
         await _resolveRoot(),
         (_) {},
       );
-      onLocalReady?.call(
-        JmLocalResult(
-          meta: meta,
-          pageCount: result.files.length,
-          localDir: localDir,
-        ),
-      );
+      if (onLocalReady != null) {
+        await onLocalReady(
+          JmLocalResult(
+            meta: meta,
+            pageCount: result.files.length,
+            localDir: localDir,
+          ),
+        );
+      }
 
       // 2) 逐页 AVIF 压缩并就地替换（压完一页换一页）
       final swap = await _compressAndSwap(
@@ -108,6 +112,7 @@ class JmPipeline {
         onProgress,
       );
 
+      completed = true;
       return JmLocalResult(
         meta: meta,
         pageCount: swap.total,
@@ -115,8 +120,8 @@ class JmPipeline {
         keptOriginal: swap.kept,
       );
     } finally {
-      // 原图已拷入本地目录，临时工作目录整体清掉
-      if (await workDir.exists()) {
+      // 下载失败时保留已完整写入的页，任务重试/闪退续跑只补缺页。
+      if (completed && await workDir.exists()) {
         await workDir.delete(recursive: true);
       }
     }
@@ -383,17 +388,31 @@ class JmPipeline {
     void Function(String) onProgress,
   ) async {
     final dir = Directory(p.join(root, workId));
-    // 旧的本地目录直接清掉重铺（重复下载同一车号时保持一致）
-    if (await dir.exists()) {
-      await dir.delete(recursive: true);
+    final staging = Directory(p.join(root, '$workId.staging'));
+    final backup = Directory(p.join(root, '$workId.backup'));
+    // 上次换目录中断时先恢复旧版本，保证书架行始终有可读的完整页面。
+    if (!await dir.exists() && await backup.exists()) {
+      await backup.rename(dir.path);
     }
-    await dir.create(recursive: true);
+    if (await staging.exists()) await staging.delete(recursive: true);
+    await staging.create(recursive: true);
     for (var i = 0; i < pages.length; i++) {
       onProgress('整理本地文件 ${i + 1}/${pages.length}…');
       final ext = p.extension(pages[i]).replaceFirst('.', '');
       final name = '${(i + 1).toString().padLeft(3, '0')}.$ext';
-      await File(pages[i]).copy(p.join(dir.path, name));
+      await File(pages[i]).copy(p.join(staging.path, name));
     }
+    if (await backup.exists()) await backup.delete(recursive: true);
+    if (await dir.exists()) await dir.rename(backup.path);
+    try {
+      await staging.rename(dir.path);
+    } on Object {
+      if (!await dir.exists() && await backup.exists()) {
+        await backup.rename(dir.path);
+      }
+      rethrow;
+    }
+    if (await backup.exists()) await backup.delete(recursive: true);
     return dir.path;
   }
 

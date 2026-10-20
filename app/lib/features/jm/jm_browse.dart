@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../data/db/app_database.dart';
 import '../downloader/display_image.dart';
 import '../downloader/jm_tasks.dart';
 import '../providers.dart';
@@ -465,16 +467,30 @@ class _JmBrowseViewState extends ConsumerState<JmBrowseView> {
       album = null;
     }
     if (!mounted) return;
+    // JM 车号就是本地作品 id 的唯一部分；下载中的占位行页数为 0，
+    // 不能当作已经可阅读的作品。
+    final db = ref.read(appDatabaseProvider);
+    final localWork = await (db.select(
+      db.works,
+    )..where((t) => t.id.equals('jm_$albumId'))).getSingleOrNull();
+    if (!mounted) return;
+    final readableWork =
+        localWork != null && localWork.localOnly && (localWork.pages ?? 0) > 0
+        ? localWork
+        : null;
+    final container = ProviderScope.containerOf(context, listen: false);
+    final messenger = ScaffoldMessenger.of(context);
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
-      builder: (context) => _JmDetailSheet(
+      builder: (sheetContext) => _JmDetailSheet(
         albumId: albumId,
         album: album,
         proxy: _proxy,
+        localWork: readableWork,
         onTagTap: (tag) {
-          Navigator.of(context).pop();
+          Navigator.of(sheetContext).pop();
           setState(() {
             _query = tag;
             _search.text = tag;
@@ -482,16 +498,22 @@ class _JmBrowseViewState extends ConsumerState<JmBrowseView> {
           _load(1);
         },
         onDownload: () {
-          Navigator.of(context).pop();
+          Navigator.of(sheetContext).pop();
           startJmDownload(
-            ProviderScope.containerOf(context, listen: false),
+            container,
             albumId: albumId,
             ffmpegPath: _ffmpeg,
             proxy: _proxy,
           );
-          ScaffoldMessenger.of(context).showSnackBar(
+          messenger.showSnackBar(
             SnackBar(content: Text('《${album?.title ?? albumId}》已加入下载任务')),
           );
+        },
+        onOpenLocal: () {
+          Navigator.of(sheetContext).pop();
+          if (readableWork != null && mounted) {
+            context.push('/reader', extra: readableWork);
+          }
         },
       ),
     );
@@ -614,15 +636,19 @@ class _JmDetailSheet extends StatelessWidget {
     required this.albumId,
     required this.album,
     required this.proxy,
+    required this.localWork,
     required this.onTagTap,
     required this.onDownload,
+    required this.onOpenLocal,
   });
 
   final String albumId;
   final JmAlbumInfo? album;
   final String proxy;
+  final Work? localWork;
   final ValueChanged<String> onTagTap;
   final VoidCallback onDownload;
+  final VoidCallback onOpenLocal;
 
   @override
   Widget build(BuildContext context) {
@@ -696,9 +722,9 @@ class _JmDetailSheet extends StatelessWidget {
           ],
           const SizedBox(height: 20),
           FilledButton.icon(
-            icon: const Icon(Icons.download),
-            label: const Text('下载到书架'),
-            onPressed: onDownload,
+            icon: Icon(localWork == null ? Icons.download : Icons.menu_book),
+            label: Text(localWork == null ? '下载到书架' : '打开本地漫画'),
+            onPressed: localWork == null ? onDownload : onOpenLocal,
           ),
         ],
       ),

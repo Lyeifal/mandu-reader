@@ -3,7 +3,6 @@ import 'dart:math';
 
 import 'package:drift/drift.dart' hide Column;
 import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
 
 import '../../core/exceptions.dart';
@@ -11,7 +10,6 @@ import '../../core/retry.dart';
 import '../../data/db/app_database.dart';
 import '../bucket/bucket_client.dart';
 import '../bucket/path_helper.dart';
-import '../providers.dart';
 import '../settings/settings_repository.dart';
 import 'works_index.dart' show BadLine;
 
@@ -517,15 +515,16 @@ Future<void> saveProgressLocal(
 
 /// 退出阅读器时的最终保存：本地落库 + 尽力追加桶事件。
 /// 任何失败只记日志——进度保存绝不能影响阅读器退出。
+/// 依赖须由调用方在 widget 挂载期解析后传入（dispose 里不能用 WidgetRef）。
 Future<void> saveProgressSafely(
-  WidgetRef ref,
+  AppDatabase db,
+  BucketClient? client,
   Work work,
   Map<String, dynamic> loc, {
   required String dev,
 }) async {
   try {
-    await saveProgressLocal(ref.read(appDatabaseProvider), work.id, loc);
-    final client = ref.read(bucketClientProvider);
+    await saveProgressLocal(db, work.id, loc);
     if (client == null) return;
     await appendEvents(client, [
       progressEvent(
@@ -541,12 +540,12 @@ Future<void> saveProgressSafely(
 }
 
 /// 书签/其他事件的最佳努力追加（本地已写，这里只补桶）。
+/// [client] 由调用方在挂载期解析（dispose 里不能用 WidgetRef）。
 Future<void> appendReaderEventSafely(
-  WidgetRef ref,
+  BucketClient? client,
   Map<String, dynamic> event,
 ) async {
   try {
-    final client = ref.read(bucketClientProvider);
     if (client == null) return;
     await appendEvents(client, [event]);
   } on Object catch (e) {

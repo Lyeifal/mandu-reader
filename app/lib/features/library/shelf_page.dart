@@ -23,6 +23,8 @@ import '../settings/settings_page.dart';
 import 'index_sync.dart';
 import 'events_log.dart';
 import 'fts_helper.dart';
+import 'manga_collections.dart';
+import 'manga_collection_ui.dart';
 import 'shelf_add_dialog.dart';
 import 'shelf_filter_panel.dart';
 import 'shelf_query.dart';
@@ -63,6 +65,24 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
   bool _syncing = false;
   bool _panelOpen = true;
   bool _panelInit = false;
+  bool _collectionActionBusy = false;
+  ProviderSubscription<(ShelfFilter, int, int)>? _selectionQuerySubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectionQuerySubscription = ref.listenManual(shelfQueryProvider, (
+      previous,
+      next,
+    ) {
+      if (previous != null &&
+          previous != next &&
+          _selected.isNotEmpty &&
+          mounted) {
+        setState(_selected.clear);
+      }
+    });
+  }
 
   @override
   void didChangeDependencies() {
@@ -74,27 +94,13 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
     }
   }
 
-  /// 顶部页签：manga | jm | novel（jm 为应用内 JM 浏览，不占筛选类型）。
-  /// 记住上次选择（shelf.tab），避免「同步了漫画却停在小说页签」的错觉。
-  String _tab = 'novel';
-
-  @override
-  void initState() {
-    super.initState();
-    _loadTab();
-  }
-
-  Future<void> _loadTab() async {
-    final t =
-        (await ref.read(settingsRepositoryProvider).get('shelf.tab'))?.trim() ??
-        '';
-    if (t.isNotEmpty && mounted && t != _tab) {
-      setState(() => _tab = t);
-    }
-  }
+  // 本地页签与列表共用筛选类型；启动默认小说，不再单独恢复旧页签。
+  String? _browseTab;
+  String get _tab => _browseTab ?? ref.read(shelfFilterProvider).type;
 
   @override
   void dispose() {
+    _selectionQuerySubscription?.close();
     _debounce?.cancel();
     _search.dispose();
     super.dispose();
@@ -164,9 +170,10 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
   }
 
   void _switchTab(String tab) {
-    if (tab == _tab) return;
-    setState(() => _tab = tab);
-    unawaited(ref.read(settingsRepositoryProvider).set('shelf.tab', tab));
+    setState(() {
+      _browseTab = (tab == 'jm' || tab == 'src') ? tab : null;
+      _selected.clear();
+    });
     if (tab == 'jm' || tab == 'src') return;
     final filter = ref.read(shelfFilterProvider);
     if (filter.type != tab) {
@@ -257,6 +264,21 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
           onPressed: () =>
               setState(() => _selected.addAll(pageWorks.map((w) => w.id))),
         ),
+        if (ref.read(shelfFilterProvider).type == 'manga')
+          IconButton(
+            tooltip: '加入收藏夹',
+            icon: const Icon(Icons.create_new_folder_outlined),
+            onPressed: _collectionActionBusy ? null : _addSelectedToCollection,
+          ),
+        if (ref.read(shelfFilterProvider).type == 'manga' &&
+            ref.read(shelfFilterProvider).collectionId > 0)
+          IconButton(
+            tooltip: '从当前收藏夹移出',
+            icon: const Icon(Icons.folder_delete_outlined),
+            onPressed: _collectionActionBusy
+                ? null
+                : _removeSelectedFromCollection,
+          ),
         IconButton(
           tooltip: '上传到云端',
           icon: const Icon(Icons.cloud_upload),
@@ -265,6 +287,50 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
         const SizedBox(width: 8),
       ],
     );
+  }
+
+  Future<void> _addSelectedToCollection() async {
+    final container = ProviderScope.containerOf(context, listen: false);
+    final messenger = ScaffoldMessenger.of(context);
+    final ids = _selected.toList();
+    setState(() => _collectionActionBusy = true);
+    final id = await showMangaCollectionPicker(context);
+    if (id == null) {
+      if (mounted) setState(() => _collectionActionBusy = false);
+      return;
+    }
+    try {
+      await container
+          .read(mangaCollectionsRepositoryProvider)
+          .addWorks(id, ids);
+      refreshMangaCollectionShelf(container);
+      if (mounted) setState(() => _selected.clear());
+      messenger.showSnackBar(const SnackBar(content: Text('已加入收藏夹')));
+    } on Object catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('加入失败：$e')));
+    } finally {
+      if (mounted) setState(() => _collectionActionBusy = false);
+    }
+  }
+
+  Future<void> _removeSelectedFromCollection() async {
+    final container = ProviderScope.containerOf(context, listen: false);
+    final messenger = ScaffoldMessenger.of(context);
+    final filter = container.read(shelfFilterProvider);
+    final ids = _selected.toList();
+    setState(() => _collectionActionBusy = true);
+    try {
+      await container
+          .read(mangaCollectionsRepositoryProvider)
+          .removeWorks(filter.collectionId, ids);
+      refreshMangaCollectionShelf(container);
+      if (mounted) setState(() => _selected.clear());
+      messenger.showSnackBar(const SnackBar(content: Text('已从当前收藏夹移出')));
+    } on Object catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('移出失败：$e')));
+    } finally {
+      if (mounted) setState(() => _collectionActionBusy = false);
+    }
   }
 
   /// 批量上传：仅本设备作品可传；已在云端的静默跳过并提示。
@@ -475,6 +541,63 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
                     padding: const EdgeInsets.fromLTRB(12, 8, 12, 2),
                     child: _buildSearch(),
                   ),
+                if (_tab == 'manga')
+                  Consumer(
+                    builder: (context, ref, _) => ref
+                        .watch(mangaCollectionsProvider)
+                        .when(
+                          loading: () => const SizedBox(
+                            height: 52,
+                            child: Center(
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          ),
+                          error: (e, _) => SizedBox(
+                            height: 52,
+                            child: Center(child: Text('收藏夹加载失败：$e')),
+                          ),
+                          data: (items) => MangaCollectionBar(
+                            items: items,
+                            selectedId: filter.collectionId,
+                            onSelect: (id) {
+                              final current = ref.read(shelfFilterProvider);
+                              ref
+                                  .read(shelfFilterProvider.notifier)
+                                  .apply(current.copyWith(collectionId: id));
+                              ref.read(shelfPageProvider.notifier).go(1);
+                              setState(() => _selected.clear());
+                            },
+                            onManage: () async {
+                              final container = ProviderScope.containerOf(
+                                context,
+                                listen: false,
+                              );
+                              await showMangaCollectionManager(context);
+                              if (!mounted) return;
+                              final selected = container
+                                  .read(shelfFilterProvider)
+                                  .collectionId;
+                              final exists =
+                                  container
+                                      .read(mangaCollectionsProvider)
+                                      .value
+                                      ?.any((item) => item.id == selected) ??
+                                  false;
+                              if (selected > 0 && !exists) {
+                                final current = container.read(
+                                  shelfFilterProvider,
+                                );
+                                container
+                                    .read(shelfFilterProvider.notifier)
+                                    .apply(current.copyWith(collectionId: 0));
+                                container
+                                    .read(shelfPageProvider.notifier)
+                                    .go(1);
+                              }
+                            },
+                          ),
+                        ),
+                  ),
                 Expanded(
                   child: _tab == 'jm'
                       ? const JmBrowseView()
@@ -566,7 +689,7 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
     );
   }
 
-  bool get _compact => MediaQuery.sizeOf(context).width < 600;
+  bool get _compact => MediaQuery.sizeOf(context).width < 1100;
 
   /// 浏览类页签（JM 漫画/书源找书）：无本地筛选，隐藏书架搜索框。
   bool get _isBrowseTab => _tab == 'jm' || _tab == 'src';
@@ -659,7 +782,17 @@ class _ShelfPageState extends ConsumerState<ShelfPage> {
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
-      builder: (context) => _WorkInfoSheet(work: work),
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (context) => SizedBox(
+        height: math.min(
+          560.0,
+          MediaQuery.sizeOf(context).height -
+              MediaQuery.paddingOf(context).vertical -
+              48,
+        ),
+        child: _WorkInfoSheet(work: work),
+      ),
     );
   }
 }
@@ -977,13 +1110,47 @@ class _PagerBar extends StatelessWidget {
 }
 
 /// 作品信息底部弹层；点作者名可按作者筛选。
-class _WorkInfoSheet extends ConsumerWidget {
+class _WorkInfoSheet extends ConsumerStatefulWidget {
   const _WorkInfoSheet({required this.work});
 
   final Work work;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_WorkInfoSheet> createState() => _WorkInfoSheetState();
+}
+
+class _WorkInfoSheetState extends ConsumerState<_WorkInfoSheet> {
+  Work get work => widget.work;
+  bool _tagsExpanded = false;
+  bool _collectionBusy = false;
+
+  Future<void> _addToCollection(BuildContext context, WidgetRef ref) async {
+    final container = ProviderScope.containerOf(context, listen: false);
+    final messenger = ScaffoldMessenger.of(context);
+    if (mounted) setState(() => _collectionBusy = true);
+    final id = await showMangaCollectionPicker(context);
+    if (id == null) {
+      if (mounted) setState(() => _collectionBusy = false);
+      return;
+    }
+    try {
+      await container.read(mangaCollectionsRepositoryProvider).addWorks(id, [
+        work.id,
+      ]);
+      refreshMangaCollectionShelf(container);
+      messenger.showSnackBar(const SnackBar(content: Text('已加入收藏夹')));
+    } on Object catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('加入收藏夹失败：$e')));
+    } finally {
+      if (mounted) setState(() => _collectionBusy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final jmId = work.type == 'manga'
+        ? RegExp(r'^jm_(\d+)$').firstMatch(work.id)?.group(1)
+        : null;
     List<Widget> rows = [
       if (work.author.isNotEmpty)
         _row(
@@ -1006,6 +1173,7 @@ class _WorkInfoSheet extends ConsumerWidget {
               ? '${work.series} 第 ${work.volume} 卷'
               : work.series,
         ),
+      if (jmId != null) _row('JM 车号', jmId),
       _row('类型', work.type == 'manga' ? '漫画' : '小说'),
       _row('状态', statusLabel(work.status)),
       if (work.publishedAt != null) _row('发布', work.publishedAt!),
@@ -1032,103 +1200,182 @@ class _WorkInfoSheet extends ConsumerWidget {
     }
 
     return SafeArea(
-      child: ListView(
-        shrinkWrap: true,
-        padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+      child: Column(
         children: [
-          Text(work.title, style: Theme.of(context).textTheme.titleLarge),
-          if (work.titleJp.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text(
-              work.titleJp,
-              style: Theme.of(context).textTheme.bodySmall
-                  ?.copyWith(color: Theme.of(context).colorScheme.outline),
-            ),
-          ],
-          const SizedBox(height: 16),
-          for (final r in rows) ...[r, const SizedBox(height: 6)],
-          const SizedBox(height: 8),
-          // 标签全量展示：点击按标签筛选；+ 号新增标签到本书
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              for (final t in tags)
-                ActionChip(
-                  label: Text(t),
-                  visualDensity: VisualDensity.compact,
-                  onPressed: () {
-                    ref
-                        .read(shelfFilterProvider.notifier)
-                        .apply(
-                          ref
-                              .read(shelfFilterProvider)
-                              .copyWith(tagModes: {t: TagMode.or}),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+              children: [
+                Text(
+                  work.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                if (work.titleJp.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    work.titleJp,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.outline,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 16),
+                for (final r in rows) ...[r, const SizedBox(height: 6)],
+                if (work.type == 'manga')
+                  Consumer(
+                    builder: (context, ref, _) => FutureBuilder<Set<int>>(
+                      future: ref
+                          .read(mangaCollectionsRepositoryProvider)
+                          .collectionsForWork(work.id),
+                      builder: (context, snapshot) {
+                        final ids = snapshot.data ?? const <int>{};
+                        final names =
+                            ref.watch(mangaCollectionsProvider).value ??
+                            const <MangaCollectionSummary>[];
+                        final belonging = names
+                            .where((item) => ids.contains(item.id))
+                            .map((item) => item.name)
+                            .join('、');
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (snapshot.connectionState ==
+                                    ConnectionState.done &&
+                                belonging.isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 4),
+                                child: Text(
+                                  '已收藏：$belonging',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                              ),
+                            OutlinedButton.icon(
+                              key: const ValueKey('work-add-to-collection'),
+                              icon: const Icon(
+                                Icons.create_new_folder_outlined,
+                                size: 18,
+                              ),
+                              label: const Text('加入收藏夹'),
+                              onPressed: _collectionBusy
+                                  ? null
+                                  : () => _addToCollection(context, ref),
+                            ),
+                          ],
                         );
-                    ref.read(shelfPageProvider.notifier).go(1);
-                    pushRecentTag(ref, t);
-                    Navigator.of(context).pop();
-                  },
+                      },
+                    ),
+                  ),
+                const SizedBox(height: 8),
+                if (tags.length > 4)
+                  ActionChip(
+                    key: const ValueKey('work-tags-toggle'),
+                    label: Text(
+                      _tagsExpanded ? '收起标签' : '展开全部 ${tags.length} 个标签',
+                    ),
+                    onPressed: () =>
+                        setState(() => _tagsExpanded = !_tagsExpanded),
+                  ),
+                // 默认仅展示前几个标签，展开不改变弹层高度。
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final t in _tagsExpanded ? tags : tags.take(4))
+                      ActionChip(
+                        label: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 180),
+                          child: Text(
+                            t,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () {
+                          ref
+                              .read(shelfFilterProvider.notifier)
+                              .apply(
+                                ref
+                                    .read(shelfFilterProvider)
+                                    .copyWith(tagModes: {t: TagMode.or}),
+                              );
+                          ref.read(shelfPageProvider.notifier).go(1);
+                          pushRecentTag(ref, t);
+                          Navigator.of(context).pop();
+                        },
+                      ),
+                    ActionChip(
+                      label: const Icon(Icons.add, size: 16),
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => _addTag(context, ref),
+                    ),
+                  ],
                 ),
-              ActionChip(
-                label: const Icon(Icons.add, size: 16),
-                visualDensity: VisualDensity.compact,
-                onPressed: () => _addTag(context, ref),
-              ),
-            ],
+                const SizedBox(height: 20),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    TextButton.icon(
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        foregroundColor: Theme.of(context).colorScheme.outline,
+                      ),
+                      icon: const Icon(Icons.delete_outline, size: 18),
+                      label: const Text('删除本地'),
+                      onPressed: () => _deleteLocal(context, ref),
+                    ),
+                    if (!work.localOnly) ...[
+                      const SizedBox(width: 8),
+                      TextButton.icon(
+                        style: TextButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          foregroundColor: Theme.of(context)
+                              .colorScheme
+                              .outline,
+                        ),
+                        icon: const Icon(Icons.cloud_off_outlined, size: 18),
+                        label: const Text('删除云端'),
+                        onPressed: () => _deleteCloud(context, ref),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 20),
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.icon(
-                  icon: const Icon(Icons.menu_book),
-                  label: const Text('阅读'),
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                    context.push('/reader', extra: work);
-                  },
-                ),
-              ),
-              if (work.localOnly) ...[
-                const SizedBox(width: 12),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
+            child: Row(
+              children: [
                 Expanded(
-                  child: OutlinedButton.icon(
-                    icon: const Icon(Icons.cloud_upload),
-                    label: const Text('上传到云端'),
-                    onPressed: () => _upload(context, ref),
+                  child: FilledButton.icon(
+                    icon: const Icon(Icons.menu_book),
+                    label: const Text('阅读'),
+                    onPressed: () {
+                      final router = GoRouter.of(context);
+                      Navigator.of(context).pop();
+                      router.push('/reader', extra: work);
+                    },
                   ),
                 ),
-              ],
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              TextButton.icon(
-                style: TextButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  foregroundColor: Theme.of(context).colorScheme.outline,
-                ),
-                icon: const Icon(Icons.delete_outline, size: 18),
-                label: const Text('删除本地'),
-                onPressed: () => _deleteLocal(context, ref),
-              ),
-              if (!work.localOnly) ...[
-                const SizedBox(width: 8),
-                TextButton.icon(
-                  style: TextButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    foregroundColor: Theme.of(context).colorScheme.outline,
+                if (work.localOnly) ...[
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.cloud_upload),
+                      label: const Text('上传到云端'),
+                      onPressed: () => _upload(context, ref),
+                    ),
                   ),
-                  icon: const Icon(Icons.cloud_off_outlined, size: 18),
-                  label: const Text('删除云端'),
-                  onPressed: () => _deleteCloud(context, ref),
-                ),
+                ],
               ],
-            ],
+            ),
           ),
         ],
       ),

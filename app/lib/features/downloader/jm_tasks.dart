@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import '../../data/db/app_database.dart';
 import '../library/cache_prune.dart';
 import '../library/local_sweep.dart';
+import '../jm/jm_work_queue.dart';
 import '../source/source_tasks.dart';
 import '../library/shelf_query.dart';
 import '../library/upload_tasks.dart';
@@ -18,7 +19,19 @@ import 'jm_pipeline.dart';
 
 final _log = Logger('JmTasks');
 
-enum JmTaskStatus { downloading, compressing, done, failed }
+enum JmTaskStatus { queued, downloading, compressing, done, failed }
+
+/// 所有入口（新下载、重试、恢复）共用；避免几十本启动时同时抢占资源。
+final jmDownloadQueueProvider = Provider<JmWorkQueue>((ref) => JmWorkQueue(2));
+
+final jmPipelineFactoryProvider =
+    Provider<JmPipeline Function(String ffmpegPath, String localRoot)>(
+      (ref) =>
+          (ffmpegPath, localRoot) => JmPipeline(
+            transcoder: AvifTranscoder(ffmpegPath: ffmpegPath),
+            localRoot: localRoot,
+          ),
+    );
 
 /// 后台下载任务。持久化到 drift jm_tasks 表：进程被杀/闪退后启动恢复
 /// 列表，进行中的任务自动续跑（见 [_JmTasksNotifier._restore]）。
@@ -38,6 +51,11 @@ class JmTask {
   final String albumId;
   final String title;
   final JmTaskStatus status;
+
+  bool get isPending =>
+      status == JmTaskStatus.queued ||
+      status == JmTaskStatus.downloading ||
+      status == JmTaskStatus.compressing;
 
   /// 当前阶段描述（下载中/压缩 x/y/…）。
   final String phase;
@@ -98,6 +116,7 @@ class JmTask {
   );
 
   String get statusLabel => switch (status) {
+    JmTaskStatus.queued => '排队中',
     JmTaskStatus.downloading => '下载中',
     JmTaskStatus.compressing => '压缩中',
     JmTaskStatus.done => '完成',
@@ -121,7 +140,7 @@ class _JmTasksNotifier extends Notifier<List<JmTask>> {
   }
 
   bool _restored = false;
-  DateTime _lastPersistAt = DateTime.fromMillisecondsSinceEpoch(0);
+  final _lastPersistAt = <String, DateTime>{};
 
   Future<void> _restore() async {
     if (_restored) return;
@@ -138,8 +157,7 @@ class _JmTasksNotifier extends Notifier<List<JmTask>> {
       for (final t in persisted) {
         if (merged.any((e) => e.albumId == t.albumId)) continue;
         merged.add(t);
-        if (t.status == JmTaskStatus.downloading ||
-            t.status == JmTaskStatus.compressing) {
+        if (t.isPending) {
           resume.add(t);
         }
       }
@@ -153,9 +171,7 @@ class _JmTasksNotifier extends Notifier<List<JmTask>> {
         // 漏一个 id 就会被误删（书签/进度一并丢失）
         final inFlightIds = {
           for (final t in merged)
-            if (t.status == JmTaskStatus.downloading ||
-                t.status == JmTaskStatus.compressing)
-              'jm_${t.albumId}',
+            if (t.isPending) 'jm_${t.albumId}',
           for (final t in ref.read(novelTasksProvider))
             if (t.status == NovelTaskStatus.downloading) t.workId,
         };
@@ -208,6 +224,7 @@ class _JmTasksNotifier extends Notifier<List<JmTask>> {
               albumId: t.albumId,
               ffmpegPath: t.ffmpegPath,
               proxy: t.proxy,
+              resume: true,
             ),
           );
         }
@@ -250,21 +267,26 @@ class _JmTasksNotifier extends Notifier<List<JmTask>> {
   void patch(String albumId, JmTask Function(JmTask) fn) {
     final i = state.indexWhere((t) => t.albumId == albumId);
     if (i < 0) return;
-    state = [...state]..[i] = fn(state[i]);
+    final previous = state[i];
+    state = [...state]..[i] = fn(previous);
     final t = state[i];
     // 进度文案高频更新（每页一次）：节流落库；终态（完成/失败）必落——
     // 进程若死在节流窗内，状态停在 downloading，恢复时按续跑处理（幂等）
     final terminal =
         t.status == JmTaskStatus.done || t.status == JmTaskStatus.failed;
     final now = DateTime.now();
+    final last = _lastPersistAt[albumId];
     if (terminal ||
-        now.difference(_lastPersistAt) >= const Duration(seconds: 2)) {
-      _lastPersistAt = now;
+        previous.status != t.status ||
+        last == null ||
+        now.difference(last) >= const Duration(seconds: 2)) {
+      _lastPersistAt[albumId] = now;
       unawaited(_persist(t));
     }
   }
 
   void remove(String albumId) {
+    _lastPersistAt.remove(albumId);
     state = state.where((t) => t.albumId != albumId).toList();
     unawaited(_deleteRow(albumId));
   }
@@ -276,15 +298,11 @@ final jmTasksProvider = NotifierProvider<_JmTasksNotifier, List<JmTask>>(
 
 /// 进行中的任务数（入口角标）；失败/完成的不再计数。
 final activeJmTaskCountProvider = Provider<int>(
-  (ref) => ref
-      .watch(jmTasksProvider)
-      .where(
-        (t) =>
-            t.status == JmTaskStatus.downloading ||
-            t.status == JmTaskStatus.compressing,
-      )
-      .length,
+  (ref) => ref.watch(jmTasksProvider).where((t) => t.isPending).length,
 );
+
+/// 本进程已入队或执行中的车号，与数据库遗留状态分开记录。
+final _activeDownloads = <String>{};
 
 /// 启动一次后台下载（下载弹窗、任务列表「重试」与启动续跑共用）。
 /// 用 [ProviderContainer] 而非 WidgetRef：弹窗关闭后任务仍在跑。
@@ -293,23 +311,29 @@ Future<void> startJmDownload(
   required String albumId,
   required String ffmpegPath,
   required String proxy,
+  bool resume = false,
 }) async {
-  // 同相册已有进行中的任务时跳过：两次下载并发会互删/互写同一本地目录
+  // 内存锁阻止同车号重复入队；持久化的 downloading 只是上次进程遗留，续跑
+  // 必须越过下面的状态检查，否则恢复列表有任务却永远不会重新执行。
+  if (!_activeDownloads.add(albumId)) return;
   final existing = container.read(jmTasksProvider);
-  final inFlight = existing.any(
-    (t) =>
-        t.albumId == albumId &&
-        (t.status == JmTaskStatus.downloading ||
-            t.status == JmTaskStatus.compressing),
-  );
-  if (inFlight) return;
+  final inFlight = existing.any((t) => t.albumId == albumId && t.isPending);
+  if (inFlight && !resume) {
+    _activeDownloads.remove(albumId);
+    return;
+  }
 
   final tasks = container.read(jmTasksProvider.notifier);
   tasks.upsert(
     JmTask(
       albumId: albumId,
-      title: '相册 $albumId',
-      status: JmTaskStatus.downloading,
+      title:
+          existing
+              .where((t) => t.albumId == albumId)
+              .map((t) => t.title)
+              .firstOrNull ??
+          '相册 $albumId',
+      status: JmTaskStatus.queued,
       ffmpegPath: ffmpegPath,
       proxy: proxy,
     ),
@@ -325,61 +349,64 @@ Future<void> startJmDownload(
       ..invalidate(shelfAuthorsProvider);
   }
 
-  final pipeline = JmPipeline(
-    transcoder: AvifTranscoder(ffmpegPath: ffmpegPath),
-    localRoot: await resolveLocalRoot(
-      container.read(settingsRepositoryProvider),
-    ),
-  );
-
   try {
-    final result = await pipeline.download(
-      albumId: albumId,
-      proxy: proxy,
-      onMeta: (meta) async {
-        tasks.patch(
-          albumId,
-          (t) => t.copyWith(title: meta.title, phase: '下载中…'),
-        );
-        // 只登记新行：此时页数/封面还没就绪，覆盖会把已有行打成半成品
-        await pipeline.registerLocal(
-          container.read(appDatabaseProvider),
-          JmLocalResult(meta: meta, pageCount: 0, localDir: ''),
-          insertOnly: true,
-        );
-        refreshShelf();
-      },
-      onLocalReady: (r) async {
-        tasks.patch(
-          albumId,
-          (t) => t.copyWith(
-            status: JmTaskStatus.compressing,
-            phase: '压缩 0/${r.pageCount}',
-          ),
-        );
-        await pipeline.registerLocal(container.read(appDatabaseProvider), r);
-        refreshShelf();
-      },
-      onCompressProgress: (done, total, kept) {
-        tasks.patch(
-          albumId,
-          (t) => t.copyWith(phase: '压缩 $done/$total（保留原图 $kept）'),
-        );
-      },
-      onProgress: (p) => tasks.patch(albumId, (t) => t.copyWith(phase: p)),
-    );
-    await pipeline.registerLocal(container.read(appDatabaseProvider), result);
-    refreshShelf();
-    tasks.patch(
-      albumId,
-      (t) => t.copyWith(
-        status: JmTaskStatus.done,
-        phase: '',
-        pages: result.pageCount,
-        keptOriginal: result.keptOriginal,
-        clearError: true,
-      ),
-    );
+    await container.read(jmDownloadQueueProvider).run(() async {
+      tasks.patch(albumId, (t) => t.copyWith(status: JmTaskStatus.downloading));
+      final localRoot = await resolveLocalRoot(
+        container.read(settingsRepositoryProvider),
+      );
+      final pipeline = container.read(jmPipelineFactoryProvider)(
+        ffmpegPath,
+        localRoot,
+      );
+      final result = await pipeline.download(
+        albumId: albumId,
+        proxy: proxy,
+        onMeta: (meta) async {
+          tasks.patch(
+            albumId,
+            (t) => t.copyWith(title: meta.title, phase: '下载中…'),
+          );
+          // 只登记新行：此时页数/封面还没就绪，覆盖会把已有行打成半成品
+          await pipeline.registerLocal(
+            container.read(appDatabaseProvider),
+            JmLocalResult(meta: meta, pageCount: 0, localDir: ''),
+            insertOnly: true,
+          );
+          refreshShelf();
+        },
+        onLocalReady: (r) async {
+          tasks.patch(
+            albumId,
+            (t) => t.copyWith(
+              status: JmTaskStatus.compressing,
+              phase: '压缩 0/${r.pageCount}',
+            ),
+          );
+          await pipeline.registerLocal(container.read(appDatabaseProvider), r);
+          refreshShelf();
+        },
+        onCompressProgress: (done, total, kept) {
+          tasks.patch(
+            albumId,
+            (t) => t.copyWith(phase: '压缩 $done/$total（保留原图 $kept）'),
+          );
+        },
+        onProgress: (p) => tasks.patch(albumId, (t) => t.copyWith(phase: p)),
+      );
+      await pipeline.registerLocal(container.read(appDatabaseProvider), result);
+      refreshShelf();
+      tasks.patch(
+        albumId,
+        (t) => t.copyWith(
+          status: JmTaskStatus.done,
+          phase: '',
+          pages: result.pageCount,
+          keptOriginal: result.keptOriginal,
+          clearError: true,
+        ),
+      );
+    });
   } on Object catch (e) {
     tasks.patch(
       albumId,
@@ -391,6 +418,8 @@ Future<void> startJmDownload(
             .replaceFirst('Bad state: ', ''),
       ),
     );
+  } finally {
+    _activeDownloads.remove(albumId);
   }
 }
 
@@ -464,6 +493,7 @@ class JmTasksSheet extends ConsumerWidget {
     return ListTile(
       contentPadding: EdgeInsets.zero,
       leading: Icon(switch (t.status) {
+        JmTaskStatus.queued => Icons.schedule,
         JmTaskStatus.done => Icons.check_circle,
         JmTaskStatus.failed => Icons.error,
         _ => Icons.download,

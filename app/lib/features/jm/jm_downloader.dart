@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import '../downloader/jm_models.dart' show JmAlbumMeta;
 import 'jm_api.dart';
 import 'jm_scramble.dart';
+import 'jm_work_queue.dart';
 
 /// 下载结果：元数据 + 图片文件绝对路径（有序）。
 class JmDartResult {
@@ -22,16 +23,17 @@ class JmDartResult {
 ///
 /// 进度回调语义与旧驱动一致（任务列表直接用）。
 class JmDartDownloader {
-  JmDartDownloader({String proxy = ''}) : _client = JmApiClient(proxy: proxy);
+  JmDartDownloader({String proxy = '', JmApiClient? client})
+    : _client = client ?? JmApiClient(proxy: proxy);
 
   final JmApiClient _client;
 
   static const _photoConcurrency = 4;
 
-  /// 图级并发：解码+条带还原+JPEG 重编码在独立 isolate 执行（见
-  /// [_decodeInIsolate]），不阻塞 UI；并发仍收敛在个位数，避免把
-  /// CPU 占满影响浏览，也对 CDN 友好。
+  /// 章内调度窗口不是全局并发上限：多章、多本共享下面两个闸门。
   static const _imageConcurrency = 8;
+  static final _imageWorkQueue = JmWorkQueue(8);
+  static final _decodeQueue = JmWorkQueue(1);
 
   /// 下载整本到 [outDir]（调用方准备好的工作目录）。
   Future<JmDartResult> download(
@@ -81,21 +83,24 @@ class JmDartDownloader {
     // 章级并发
     final photoIds = album.photoIds;
     final photoResults = await _mapLimited(
-      photoIds,
+      [for (var i = 0; i < photoIds.length; i++) i],
       _photoConcurrency,
-      (photoId) => _downloadPhoto(photoId, dir.path, onProgress),
+      (i) => _downloadPhoto(
+        photoIds[i],
+        p.join(
+          dir.path,
+          'photo_${i.toString().padLeft(5, '0')}_${photoIds[i]}',
+        ),
+        onProgress,
+      ),
     );
 
-    final files = photoResults.expand((e) => e).toList()
-      ..sort((a, b) => _seqOf(a).compareTo(_seqOf(b)));
+    // 章内页码会从 001 重新开始。按相册给出的章节顺序展开，不能将所有
+    // 章节写到同一目录后按页码排序，否则后章覆盖前章、页序也会交错。
+    final files = photoResults.expand((e) => e).toList();
 
     onProgress('下载完成 ${files.length} 页');
     return JmDartResult(meta: meta, files: files);
-  }
-
-  int _seqOf(String path) {
-    final m = RegExp(r'(\d{3,5})\.\w+$').firstMatch(p.basename(path));
-    return m == null ? 0 : int.parse(m.group(1)!);
   }
 
   Future<List<String>> _downloadPhoto(
@@ -108,34 +113,50 @@ class JmDartDownloader {
       throw StateError('章节 $photoId 没有图片');
     }
     final scrambleId = await _client.getScrambleId(photoId);
+    await Directory(outDir).create(recursive: true);
 
     final paths = List<String?>.filled(photo.images.length, null);
     var downloaded = 0;
     final indexes = [for (var i = 0; i < photo.images.length; i++) i];
-    await _mapLimited(indexes, _imageConcurrency, (i) async {
-      final name = photo.images[i];
-      final url = _client.imageUrl(photoId, name);
-      final bytes = await _client.downloadImage(url);
-      // 还原后重编码为 JPEG，扩展名用 .jpg；gif/老图原样保留原扩展名
-      final doDecode = _needDecode(name);
-      final ext = doDecode ? 'jpg' : extOf(name);
-      final out = p.join(
-        outDir,
-        photo.images.length > 999
-            ? '${(i + 1).toString().padLeft(5, '0')}.$ext'
-            : '${(i + 1).toString().padLeft(3, '0')}.$ext',
-      );
-      final data = doDecode
-          ? await _decodeInIsolate(
-              bytes,
-              jmScrambleNum(scrambleId, int.parse(photoId), baseOf(name)),
-            )
-          : bytes;
-      await File(out).writeAsBytes(data);
-      paths[i] = out;
-      downloaded++;
-      onProgress('下载 $photoId 第 $downloaded/${photo.images.length} 页');
-    });
+    await _mapLimited(
+      indexes,
+      _imageConcurrency,
+      (i) => _imageWorkQueue.run(() async {
+        try {
+          final name = photo.images[i];
+          // 还原后重编码为 JPEG，扩展名用 .jpg；gif/老图原样保留原扩展名
+          final doDecode = _needDecode(name);
+          final ext = doDecode ? 'jpg' : extOf(name);
+          final out = p.join(
+            outDir,
+            photo.images.length > 999
+                ? '${(i + 1).toString().padLeft(5, '0')}.$ext'
+                : '${(i + 1).toString().padLeft(3, '0')}.$ext',
+          );
+          final file = File(out);
+          // 已完整写好的页在闪退后直接复用；临时文件只有 rename 成功才算完成。
+          if (!await file.exists() || await file.length() == 0) {
+            final url = _client.imageUrl(photoId, name);
+            final bytes = await _client.downloadImage(url);
+            final data = doDecode
+                ? await _decodeInIsolate(
+                    bytes,
+                    jmScrambleNum(scrambleId, int.parse(photoId), baseOf(name)),
+                  )
+                : bytes;
+            final partial = File('$out.part');
+            await partial.writeAsBytes(data, flush: true);
+            if (await file.exists()) await file.delete();
+            await partial.rename(out);
+          }
+          paths[i] = out;
+          downloaded++;
+          onProgress('下载 $photoId 第 $downloaded/${photo.images.length} 页');
+        } on Object catch (e) {
+          throw StateError('章节 $photoId 第 ${i + 1} 页下载失败：$e');
+        }
+      }),
+    );
     return [for (final p in paths) ?p];
   }
 
@@ -154,8 +175,11 @@ class JmDartDownloader {
 
   /// 解码 + 条带还原 + 重编码整体进独立 isolate：image 包是纯 Dart 实现，
   /// 在主 isolate 跑会让浏览/翻页全程掉帧（2026-10-03 实测卡顿根源）。
-  Future<Uint8List> _decodeInIsolate(Uint8List bytes, int num) =>
-      Isolate.run(() => jmDecodeImage(bytes, num));
+  Future<Uint8List> _decodeInIsolate(Uint8List bytes, int num) async {
+    if (num <= 0) return bytes;
+    // Isolate.run 只隔离 UI，不限制 CPU/内存；全局单路还原，给阅读和渲染留余量。
+    return _decodeQueue.run(() => Isolate.run(() => jmDecodeImage(bytes, num)));
+  }
 
   /// 限制并发的 map：保持输入顺序返回结果；单个失败即整体失败。
   Future<List<T>> _mapLimited<T, R>(

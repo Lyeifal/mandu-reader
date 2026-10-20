@@ -15,6 +15,8 @@ part 'app_database.g.dart';
     JmTasks,
     NovelSources,
     NovelTasks,
+    MangaCollections,
+    MangaCollectionEntries,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -22,12 +24,30 @@ class AppDatabase extends _$AppDatabase {
     : super(executor ?? driftDatabase(name: 'mandu_reader'));
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
+
+  Future<void> _createCollectionSupport() async {
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS manga_collection_entries_work '
+      'ON manga_collection_entries (work_id)',
+    );
+    await customStatement(
+      'CREATE TRIGGER IF NOT EXISTS manga_collection_delete '
+      'AFTER DELETE ON manga_collections BEGIN '
+      'DELETE FROM manga_collection_entries WHERE collection_id = OLD.id; END',
+    );
+    await customStatement(
+      'CREATE TRIGGER IF NOT EXISTS manga_collection_work_delete '
+      'AFTER DELETE ON works BEGIN '
+      'DELETE FROM manga_collection_entries WHERE work_id = OLD.id; END',
+    );
+  }
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (m) async {
       await m.createAll();
+      await _createCollectionSupport();
       // FTS5 虚表（设计文档 §9）。不走 drift 代码生成：
       // drift_dev 对 drift 文件的虚表解析需要额外注册 fts5 模块，
       // 运行时建表更简单可靠；查询层统一走 customStatement。
@@ -52,6 +72,11 @@ class AppDatabase extends _$AppDatabase {
         // v4：书源（内置/用户导入覆盖层）+ 小说下载任务持久化
         await m.createTable(novelSources);
         await m.createTable(novelTasks);
+      }
+      if (from < 5) {
+        await m.createTable(mangaCollections);
+        await m.createTable(mangaCollectionEntries);
+        await _createCollectionSupport();
       }
     },
   );

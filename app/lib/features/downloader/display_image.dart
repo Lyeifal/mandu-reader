@@ -56,12 +56,20 @@ Future<String> _downloadTo(HttpClient client, String url, File file) async {
   return file.path;
 }
 
-Widget _fileImage(String path, BoxFit fit, Widget fallback, int? cacheWidth) {
+Widget _fileImage(
+  String path,
+  BoxFit fit,
+  Widget fallback,
+  int? cacheWidth,
+  Widget? loadingPlaceholder,
+) {
   if (p.extension(path).toLowerCase() == '.avif') {
     return AvifImage.file(
       File(path),
       fit: fit,
       cacheWidth: cacheWidth,
+      frameBuilder: (context, child, frame, sync) =>
+          sync || frame != null ? child : loadingPlaceholder ?? child,
       errorBuilder: (_, _, _) => fallback,
     );
   }
@@ -69,6 +77,8 @@ Widget _fileImage(String path, BoxFit fit, Widget fallback, int? cacheWidth) {
     File(path),
     fit: fit,
     cacheWidth: cacheWidth,
+    frameBuilder: (context, child, frame, sync) =>
+        sync || frame != null ? child : loadingPlaceholder ?? child,
     errorBuilder: (_, _, _) => fallback,
   );
 }
@@ -78,12 +88,13 @@ Widget displayLocalImage(
   String path, {
   BoxFit fit = BoxFit.cover,
   Widget? fallback,
+  Widget? loadingPlaceholder,
 
   /// 网格封面建议 340（170×2 倍率）：默认全尺寸解码，上千像素封面内存浪费一个数量级
   int? cacheWidth,
 }) {
   final error = fallback ?? const Icon(Icons.broken_image_outlined);
-  return _fileImage(path, fit, error, cacheWidth);
+  return _fileImage(path, fit, error, cacheWidth, loadingPlaceholder);
 }
 
 /// 远端图片（自动处理 AVIF；经临时缓存）。
@@ -93,6 +104,7 @@ Widget displayUrlImage(
   String url, {
   BoxFit fit = BoxFit.cover,
   Widget? fallback,
+  Widget? loadingPlaceholder,
   String? proxy,
   int? cacheWidth,
 }) {
@@ -102,9 +114,11 @@ Widget displayUrlImage(
     builder: (context, snap) {
       final path = snap.data;
       if (path == null) {
-        return fallback ?? const Center(child: CircularProgressIndicator());
+        return loadingPlaceholder ??
+            fallback ??
+            const Center(child: CircularProgressIndicator());
       }
-      return _fileImage(path, fit, error, cacheWidth);
+      return _fileImage(path, fit, error, cacheWidth, loadingPlaceholder);
     },
   );
 }

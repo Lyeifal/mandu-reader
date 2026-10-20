@@ -33,7 +33,8 @@ final _pageSourcesProvider = FutureProvider.family<List<String>, Work>((
   final dir = p.dirname(LibraryPaths.normalizeKey(cover));
   final keys = await client.listKeys(dir, max: 1000);
   final pages =
-      keys.where((k) => RegExp(r'/(\d{3})\.\w+$').hasMatch(k)).toList()..sort();
+      keys.where((k) => RegExp(r'/(\d{3,5})\.\w+$').hasMatch(k)).toList()
+        ..sort();
   if (pages.isEmpty) throw StateError('桶里没找到页面');
   const ttl = Duration(hours: 1);
   return [for (final k in pages) await client.presignGet(k, ttl: ttl)];

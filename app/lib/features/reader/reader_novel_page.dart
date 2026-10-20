@@ -42,6 +42,11 @@ class _NovelReaderState extends ConsumerState<_NovelReader> {
   bool _progressRestored = false;
   String _devName = 'dev';
 
+  // dispose 里不能用 WidgetRef（Riverpod 抛 Bad state），挂载期缓存依赖。
+  late final AppDatabase _db;
+  BucketClient? _bucketClient;
+  bool _depsCached = false;
+
   // 分页缓存（字号/尺寸/文本变化时重算）
   NovelPages? _pages;
   String _pagesKey = '';
@@ -78,6 +83,15 @@ class _NovelReaderState extends ConsumerState<_NovelReader> {
         setState(() => _progress = (_scroll.offset / max).clamp(0.0, 1.0));
       }
     });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_depsCached) return;
+    _depsCached = true;
+    _db = ref.read(appDatabaseProvider);
+    _bucketClient = ref.read(bucketClientProvider);
   }
 
   Future<void> _resolveDevName() async {
@@ -192,7 +206,7 @@ class _NovelReaderState extends ConsumerState<_NovelReader> {
     _scheduleTimer?.cancel();
     // 退出保存最终位置（本地 + 尽力推桶事件；失败只记日志）
     unawaited(
-      saveProgressSafely(ref, widget.work, {
+      saveProgressSafely(_db, _bucketClient, widget.work, {
         'para': _currentPara,
       }, dev: _devName),
     );
@@ -202,7 +216,8 @@ class _NovelReaderState extends ConsumerState<_NovelReader> {
   }
 
   int get _currentPara {
-    final text = ref.read(_novelTextProvider(widget.work)).value;
+    // 文本经 _parasOf 漏斗缓存（build 每帧刷新），dispose 期取缓存而非 ref。
+    final text = _cachedText;
     if (text == null) return 0;
     final total = _parasOf(text).length;
     if (_paging == 'page') {
@@ -320,7 +335,7 @@ class _NovelReaderState extends ConsumerState<_NovelReader> {
         );
     unawaited(
       appendReaderEventSafely(
-        ref,
+        ref.read(bucketClientProvider),
         bookmarkEvent(
           dev: _devName,
           id: id,
@@ -336,7 +351,10 @@ class _NovelReaderState extends ConsumerState<_NovelReader> {
     final db = ref.read(appDatabaseProvider);
     await (db.delete(db.bookmarks)..where((t) => t.id.equals(id))).go();
     unawaited(
-      appendReaderEventSafely(ref, bookmarkDeleteEvent(dev: _devName, id: id)),
+      appendReaderEventSafely(
+        ref.read(bucketClientProvider),
+        bookmarkDeleteEvent(dev: _devName, id: id),
+      ),
     );
   }
 

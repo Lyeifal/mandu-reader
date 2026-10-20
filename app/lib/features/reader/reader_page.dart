@@ -11,6 +11,7 @@ import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
 
 import '../../data/db/app_database.dart';
+import '../bucket/bucket_client.dart';
 import '../bucket/path_helper.dart';
 import '../downloader/display_image.dart';
 import '../downloader/jm_pipeline.dart';

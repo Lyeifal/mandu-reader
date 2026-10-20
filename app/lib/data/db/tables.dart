@@ -1,5 +1,20 @@
 import 'package:drift/drift.dart';
 
+/// 本机漫画收藏夹；成员关系独立存储，同一漫画可属于多个收藏夹。
+class MangaCollections extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  TextColumn get name => text().unique()();
+  DateTimeColumn get createdAt => dateTime()();
+}
+
+class MangaCollectionEntries extends Table {
+  IntColumn get collectionId => integer()();
+  TextColumn get workId => text()();
+
+  @override
+  Set<Column> get primaryKey => {collectionId, workId};
+}
+
 /// 书架索引行（对应 works.jsonl，见设计文档 §4.1）。
 class Works extends Table {
   TextColumn get id => text()();

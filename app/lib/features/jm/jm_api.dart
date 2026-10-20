@@ -160,16 +160,24 @@ class JmApiClient {
   /// 下载图片字节（原样，不解密）。同 URL 重试 5 次。
   Future<Uint8List> downloadImage(String url) async {
     Object? last;
+    final original = Uri.parse(url);
+    final firstDomain = _imageDomains.indexOf(original.host);
     for (var i = 0; i < 5; i++) {
       try {
-        final req = await _client.getUrl(Uri.parse(url));
-        _imageHeaders(url).forEach(req.headers.set);
+        // 一台 CDN 坏掉时换域名重试同一张图，避免整本被单页拖死。
+        final candidate = original.replace(
+          host:
+              _imageDomains[(firstDomain < 0 ? 0 : firstDomain + i) %
+                  _imageDomains.length],
+        );
+        final req = await _client.getUrl(candidate);
+        _imageHeaders(candidate.toString()).forEach(req.headers.set);
         final resp = await req.close().timeout(const Duration(seconds: 30));
         if (resp.statusCode != 200) {
           throw StateError('图片返回 ${resp.statusCode}');
         }
         final builder = BytesBuilder();
-        await for (final chunk in resp) {
+        await for (final chunk in resp.timeout(const Duration(seconds: 30))) {
           builder.add(chunk);
         }
         return builder.toBytes();
@@ -238,7 +246,9 @@ class JmApiClient {
           req.headers.set('tokenparam', tokenparam);
           if (_cookie.isNotEmpty) req.headers.set('cookie', _cookie);
           final resp = await req.close().timeout(const Duration(seconds: 30));
-          final body = await utf8.decodeStream(resp);
+          final body = await utf8.decodeStream(
+            resp.timeout(const Duration(seconds: 30)),
+          );
           if (resp.statusCode != 200) {
             throw StateError('HTTP ${resp.statusCode}');
           }
@@ -281,7 +291,7 @@ class JmApiClient {
           }
         }
       });
-      await utf8.decodeStream(resp);
+      await utf8.decodeStream(resp.timeout(const Duration(seconds: 30)));
       if (cookies.isNotEmpty) {
         _cookie = cookies.join('; ');
       }
@@ -361,7 +371,9 @@ class JmApiClient {
           );
           req.write(Uri(queryParameters: form).query);
           final resp = await req.close().timeout(const Duration(seconds: 30));
-          final body = await utf8.decodeStream(resp);
+          final body = await utf8.decodeStream(
+            resp.timeout(const Duration(seconds: 30)),
+          );
           final setCookies = <String>[];
           resp.headers.forEach((name, values) {
             if (name.toLowerCase() == 'set-cookie') {
@@ -398,7 +410,9 @@ class JmApiClient {
       try {
         final req = await _client.getUrl(Uri.parse(url));
         final resp = await req.close().timeout(const Duration(seconds: 15));
-        var text = await utf8.decodeStream(resp);
+        var text = await utf8.decodeStream(
+          resp.timeout(const Duration(seconds: 30)),
+        );
         while (text.isNotEmpty && text.codeUnitAt(0) > 127) {
           text = text.substring(1);
         }

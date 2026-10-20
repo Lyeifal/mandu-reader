@@ -66,6 +66,78 @@ class _MangaReaderState extends ConsumerState<_MangaReader> {
 
   int _total = 0;
   double _scrollProgress = 0; // 连续滚动模式的进度（0 ~ total-1）
+  double? _pagePreview; // 滑条预览独立于滚动回调；松手才提交源页码。
+  final Set<int> _touches = {};
+  final Map<int, Offset> _touchPositions = {};
+  double? _pinchDistance;
+  Offset _pinchFocal = Offset.zero;
+  Matrix4 _pinchTransform = Matrix4.identity();
+  bool _suppressTap = false;
+  DateTime _lastInteraction = DateTime.fromMillisecondsSinceEpoch(0);
+
+  void _beginPinch() {
+    final points = _touchPositions.values.take(2).toList();
+    _pinchDistance = max((points[1] - points[0]).distance, 1);
+    _pinchFocal = (points[0] + points[1]) / 2;
+    _pinchTransform = _zoomControllerFor(0).value.clone();
+    _suppressTap = true;
+    if (_scroll.hasClients) _scroll.jumpTo(_scroll.offset);
+    if (_page.hasClients) _page.jumpTo(_page.offset);
+    setState(() {});
+  }
+
+  void _moveTouch(PointerMoveEvent event, Size viewport) {
+    final previous = _touchPositions[event.pointer];
+    if (previous == null) return;
+    _touchPositions[event.pointer] = event.localPosition;
+    final controller = _zoomControllerFor(0);
+    double scale;
+    Offset translation;
+    if (_touchPositions.length >= 2 && _pinchDistance != null) {
+      final points = _touchPositions.values.take(2).toList();
+      final initialScale = _pinchTransform.getMaxScaleOnAxis();
+      scale =
+          (initialScale * (points[1] - points[0]).distance / _pinchDistance!)
+              .clamp(1.0, 4.0);
+      final focal = (points[0] + points[1]) / 2;
+      final initialTranslation = Offset(
+        _pinchTransform.storage[12],
+        _pinchTransform.storage[13],
+      );
+      translation =
+          focal - (_pinchFocal - initialTranslation) * (scale / initialScale);
+    } else if (_zoom > 1.02) {
+      scale = _zoom;
+      translation =
+          Offset(controller.value.storage[12], controller.value.storage[13]) +
+          event.localPosition -
+          previous;
+    } else {
+      return;
+    }
+    final matrix = Matrix4.diagonal3Values(scale, scale, 1);
+    matrix.setTranslationRaw(
+      translation.dx.clamp(-viewport.width * (scale - 1), 0.0),
+      translation.dy.clamp(-viewport.height * (scale - 1), 0.0),
+      0,
+    );
+    controller.value = matrix;
+    _syncZoom(0);
+  }
+
+  void _endTouch(int pointer) {
+    _touches.remove(pointer);
+    _touchPositions.remove(pointer);
+    _lastInteraction = DateTime.now();
+    if (_touchPositions.length >= 2) {
+      _beginPinch();
+    } else {
+      _pinchDistance = null;
+      if (_touchPositions.isEmpty) _endZoom(0);
+      setState(() {});
+    }
+  }
+
   int _autoSeconds = 5; // 自动翻页/滚动间隔，0 = 关
   int _scrollPercent = 92; // 连续滚动一次跳转的距离（可视高度百分比）
   bool _doublePage = false; // 双页对开（仅横翻模式生效）
@@ -85,15 +157,22 @@ class _MangaReaderState extends ConsumerState<_MangaReader> {
   String _devName = 'dev';
   int _lastPersistedPage = 0;
 
-  // 滚动模式页高不等：线性「页号↔偏移」换算跳不准（跳页/滑杆落点漂移）。
-  // 实测已构建页的顶部偏移，未覆盖段按实测均值外推。
+  // dispose 里不能用 WidgetRef（Riverpod 抛 Bad state），挂载期缓存依赖。
+  late final AppDatabase _db;
+  BucketClient? _bucketClient;
+  bool _depsCached = false;
+
+  // 跳页将目标页设为双向列表的零点，无须估计尚未加载的图片高度。
+  int _scrollAnchor = 0;
+  final _scrollCenter = GlobalKey();
   final Map<int, GlobalKey> _itemKeys = {};
   final Map<int, double> _measured = {}; // index → 项顶部距滚动起点
-  DateTime _lastMeasureAt = DateTime.fromMillisecondsSinceEpoch(0);
+  int _scrollJumpToken = 0;
+  bool _progressFrameScheduled = false;
 
   Timer? _autoTimer;
   late final PageController _page = PageController();
-  final ScrollController _scroll = ScrollController();
+  final ScrollController _scroll = ScrollController(keepScrollOffset: false);
 
   @override
   void initState() {
@@ -103,43 +182,49 @@ class _MangaReaderState extends ConsumerState<_MangaReader> {
     _resolveDevName();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_depsCached) return;
+    _depsCached = true;
+    _db = ref.read(appDatabaseProvider);
+    _bucketClient = ref.read(bucketClientProvider);
+  }
+
   Future<void> _resolveDevName() async {
     _devName = await resolveDeviceName(ref.read(settingsRepositoryProvider));
   }
 
   void _onScrollProgress() {
-    if (_isPageMode || !_scroll.hasClients) return;
-    final max = _scroll.position.maxScrollExtent;
-    if (max <= 0 || _total <= 1) return;
-    setState(() => _scrollProgress = _topPageAt(_scroll.offset).toDouble());
-    // 滚动模式按整页变化落本地（每帧都写 SQLite 没必要）
-    _persistProgressLocal(_scrollProgress.round() + 1);
-    final now = DateTime.now();
-    if (now.difference(_lastMeasureAt) >= const Duration(milliseconds: 300)) {
-      _lastMeasureAt = now;
+    if (_progressFrameScheduled || _isPageMode || !_scroll.hasClients) return;
+    _progressFrameScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _progressFrameScheduled = false;
+      if (!mounted || _isPageMode || !_scroll.hasClients || _total <= 1) return;
       _measureBuiltItems();
-    }
+      final page = _topPageAt(_scroll.offset).toDouble();
+      if (_scrollProgress != page) setState(() => _scrollProgress = page);
+      _persistProgressLocal(page.round() + 1);
+    });
   }
 
-  /// 滚动偏移对应的页号：优先实测页偏移，无样本退回线性估算。
+  /// 当前视口顶部对应的源页码，无样本时保留跳转锚点。
   int _topPageAt(double offset) {
     var best = -1;
     _measured.forEach((i, o) {
       if (o <= offset + 1 && i > best) best = i;
     });
     if (best >= 0) return best.clamp(0, _total - 1);
-    if (!_scroll.hasClients || _scroll.position.maxScrollExtent <= 0) return 0;
-    return (offset / _scroll.position.maxScrollExtent * (_total - 1))
-        .round()
-        .clamp(0, _total - 1);
+    return _scrollAnchor;
   }
 
-  /// 测量已构建页的顶部偏移（节流调用；页高不随滚动变化，测一次长期有效）。
+  /// 布局后测量当前已构建页，图片加载/窗口变化后不沿用过期高度。
   void _measureBuiltItems() {
     if (!_scroll.hasClients) return;
     final pos = _scroll.position;
     final scrollBox = pos.context.storageContext.findRenderObject();
     if (scrollBox is! RenderBox || !scrollBox.hasSize) return;
+    _measured.clear();
     final scrollDy = scrollBox.localToGlobal(Offset.zero).dy;
     for (final e in _itemKeys.entries) {
       final box = e.value.currentContext?.findRenderObject();
@@ -153,44 +238,18 @@ class _MangaReaderState extends ConsumerState<_MangaReader> {
     }
   }
 
-  /// 目标页的估计偏移：实测均值外推优先（页高不等时线性估算偏差大）。
-  double _estimateOffset(int index) {
-    final maxExtent = _scroll.position.maxScrollExtent;
-    if (_measured.length >= 2) {
-      final first = _measured.keys.reduce((a, b) => a < b ? a : b);
-      final last = _measured.keys.reduce((a, b) => a > b ? a : b);
-      final avg = (_measured[last]! - _measured[first]!) / (last - first);
-      final nearest = _measured.keys.reduce(
-        (a, b) => (a - index).abs() < (b - index).abs() ? a : b,
-      );
-      return (_measured[nearest]! + (index - nearest) * avg).clamp(
-        0.0,
-        maxExtent,
-      );
-    }
-    return _total > 1 ? maxExtent * index / (_total - 1) : 0;
-  }
-
-  /// 滚动模式跳到指定下标：先按估计偏移瞬移（远页从未构建、ensureVisible
-  /// 找不到 key），下一帧再 ensureVisible 精确贴到页首；回调后再测一轮
-  /// 偏移，让后续跳转越来越准。
   void _jumpScrollToIndex(int index) {
-    if (!_scroll.hasClients) return;
-    _scroll.jumpTo(_estimateOffset(index));
-    final key = _itemKeys[index];
-    if (key == null) return;
+    ++_scrollJumpToken;
+    _measured.clear();
+    _itemKeys.clear();
+    setState(() => _scrollAnchor = index);
+    if (_scroll.hasClients) _scroll.jumpTo(0);
+    final token = _scrollJumpToken;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final ctx = key.currentContext;
-      if (ctx != null) {
-        Scrollable.ensureVisible(
-          ctx,
-          alignment: 0,
-          duration: const Duration(milliseconds: 250),
-          curve: Curves.easeOut,
-        );
-      }
+      if (!mounted || token != _scrollJumpToken || !_scroll.hasClients) return;
       _measureBuiltItems();
+      setState(() => _scrollProgress = index.toDouble());
+      _persistProgressLocal(index + 1);
     });
   }
 
@@ -252,7 +311,7 @@ class _MangaReaderState extends ConsumerState<_MangaReader> {
         );
     unawaited(
       appendReaderEventSafely(
-        ref,
+        ref.read(bucketClientProvider),
         bookmarkEvent(
           dev: _devName,
           id: id,
@@ -267,7 +326,10 @@ class _MangaReaderState extends ConsumerState<_MangaReader> {
     final db = ref.read(appDatabaseProvider);
     await (db.delete(db.bookmarks)..where((t) => t.id.equals(id))).go();
     unawaited(
-      appendReaderEventSafely(ref, bookmarkDeleteEvent(dev: _devName, id: id)),
+      appendReaderEventSafely(
+        ref.read(bucketClientProvider),
+        bookmarkDeleteEvent(dev: _devName, id: id),
+      ),
     );
   }
 
@@ -430,7 +492,17 @@ class _MangaReaderState extends ConsumerState<_MangaReader> {
   }
 
   void _autoStep() {
+    if (_total == 0 ||
+        _menu ||
+        _pagePreview != null ||
+        _touches.isNotEmpty ||
+        _zoom > 1.02 ||
+        DateTime.now().difference(_lastInteraction) <
+            const Duration(seconds: 3)) {
+      return;
+    }
     if (_isPageMode) {
+      if (!_page.hasClients || _page.position.isScrollingNotifier.value) return;
       if (_current >= _dispCount - 1) {
         _setAuto(0);
         return;
@@ -441,6 +513,7 @@ class _MangaReaderState extends ConsumerState<_MangaReader> {
       );
     } else {
       if (!_scroll.hasClients) return;
+      if (_scroll.position.isScrollingNotifier.value) return;
       if (_scroll.offset >= _scroll.position.maxScrollExtent - 1) {
         _setAuto(0);
         return;
@@ -454,7 +527,7 @@ class _MangaReaderState extends ConsumerState<_MangaReader> {
     _autoTimer?.cancel();
     // 退出保存最终位置：本地落库 + 尽力推桶事件（失败只记日志）
     unawaited(
-      saveProgressSafely(ref, widget.work, {
+      saveProgressSafely(_db, _bucketClient, widget.work, {
         // 对开模式 _current 是 spread 下标，落库必须是首页面码（1 基）
         'page': _isPageMode
             ? _displayFirstPage(_current) + 1
@@ -516,11 +589,15 @@ class _MangaReaderState extends ConsumerState<_MangaReader> {
 
   void _jumpScroll(int direction) {
     if (!_scroll.hasClients) return;
+    ++_scrollJumpToken;
     final step =
         _scroll.position.viewportDimension * _scrollPercent / 100 * direction;
     final target = _scroll.offset + step;
     _scroll.animateTo(
-      target.clamp(0.0, _scroll.position.maxScrollExtent),
+      target.clamp(
+        _scroll.position.minScrollExtent,
+        _scroll.position.maxScrollExtent,
+      ),
       duration: const Duration(milliseconds: 200),
       curve: Curves.easeOut,
     );
@@ -544,6 +621,44 @@ class _MangaReaderState extends ConsumerState<_MangaReader> {
     setState(() {
       _current = idx;
       _scrollProgress = (target - 1).toDouble();
+    });
+  }
+
+  void _setSnap(bool snap) {
+    final anchor = _currentPage1Based;
+    ++_scrollJumpToken;
+    setState(() {
+      _snap = snap;
+      _current = anchor - 1;
+      _scrollProgress = (anchor - 1).toDouble();
+    });
+    _savePref('reader.manga.snap', '$snap');
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _jumpToPage(anchor);
+    });
+  }
+
+  void _setMode(String mode) {
+    if (mode == _mode) return;
+    ++_scrollJumpToken;
+    final anchor = _isPageMode
+        ? _displayFirstPage(_current)
+        : _scrollProgress.round();
+    setState(() {
+      _mode = mode;
+      _current = _isDoubleMode
+          ? spreadIndexForPage(_spreads, anchor)
+          : anchor.clamp(0, (_total - 1).clamp(0, 1 << 30));
+      _scrollProgress = anchor.toDouble();
+    });
+    _savePref('reader.manga.mode', mode);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_isPageMode && _page.hasClients) {
+        _page.jumpToPage(_current.clamp(0, (_dispCount - 1).clamp(0, 1 << 30)));
+      } else if (!_isPageMode && _scroll.hasClients) {
+        _jumpScrollToIndex(_current);
+      }
     });
   }
 
@@ -710,6 +825,9 @@ class _MangaReaderState extends ConsumerState<_MangaReader> {
         if (_isPageMode) {
           body = PageView.builder(
             controller: _page,
+            physics: _zoom > 1.02 || _pinchDistance != null
+                ? const NeverScrollableScrollPhysics()
+                : null,
             scrollDirection: _mode == 'horizontal'
                 ? Axis.horizontal
                 : Axis.vertical,
@@ -728,7 +846,6 @@ class _MangaReaderState extends ConsumerState<_MangaReader> {
                   return _pageImage(sources, 0, local, BoxFit.contain);
                 }
                 final spread = spreads[i.clamp(0, spreads.length - 1)];
-                final key = spread.first; // 缩放控制器锚左页：分裂重建后仍对应同一页
                 final child = spread.len == 2
                     ? Row(
                         children: [
@@ -751,53 +868,54 @@ class _MangaReaderState extends ConsumerState<_MangaReader> {
                         ],
                       )
                     : _pageImage(sources, spread.first, local, BoxFit.contain);
-                return InteractiveViewer(
-                  panEnabled: _zoom > 1.02,
-                  scaleEnabled: true,
-                  minScale: 1,
-                  maxScale: 4,
-                  transformationController: _zoomControllerFor(key),
-                  onInteractionUpdate: (_) => _syncZoom(key),
-                  onInteractionEnd: (_) => _endZoom(key),
-                  child: child,
-                );
+                return child;
               }
-              return InteractiveViewer(
-                // 未缩放时让出手势：InteractiveViewer 默认吞滑动，PageView
-                // 永远收不到翻页手势（滑不动/回弹到第一页的元凶）。
-                // 缩放后 panEnabled 打开，可以拖动查看放大区域（全局同步）。
-                panEnabled: _zoom > 1.02,
-                scaleEnabled: true,
-                minScale: 1,
-                maxScale: 4,
-                transformationController: _zoomControllerFor(i),
-                onInteractionUpdate: (_) => _syncZoom(i),
-                onInteractionEnd: (_) => _endZoom(i),
-                child: _pageImage(sources, i, local, BoxFit.contain),
-              );
+              return _pageImage(sources, i, local, BoxFit.contain);
             },
           );
         } else {
-          // 滚动模式双指缩放：任一页放大时同步到所有页（见 _syncZoom）。
-          // panEnabled 同样只在缩放后打开——否则单指滚动被 InteractiveViewer
-          // 吃掉，列表滑不动。
-          body = ListView.builder(
-            controller: _scroll,
-            itemCount: sources.length,
-            itemBuilder: (context, i) => Container(
-              key: _itemKeys.putIfAbsent(i, GlobalKey.new),
-              child: InteractiveViewer(
-                transformationController: _zoomControllerFor(i),
-                panEnabled: _zoom > 1.02,
-                scaleEnabled: true,
-                minScale: 1,
-                maxScale: 4,
-                onInteractionUpdate: (_) => _syncZoom(i),
-                onInteractionEnd: (_) => _endZoom(i),
-                child: local
-                    ? displayLocalImage(sources[i], fit: BoxFit.fitWidth)
-                    : displayUrlImage(sources[i], fit: BoxFit.fitWidth),
-              ),
+          // 缩放放在整个列表外层，让列表先参加单指拖动的手势竞争。
+          Widget item(int i) => Container(
+            key: _itemKeys.putIfAbsent(i, GlobalKey.new),
+            child: local
+                ? displayLocalImage(
+                    sources[i],
+                    fit: BoxFit.fitWidth,
+                    loadingPlaceholder: const SizedBox(height: 400),
+                  )
+                : displayUrlImage(
+                    sources[i],
+                    fit: BoxFit.fitWidth,
+                    loadingPlaceholder: const SizedBox(height: 400),
+                  ),
+          );
+          body = NotificationListener<ScrollMetricsNotification>(
+            onNotification: (_) {
+              _onScrollProgress();
+              return false;
+            },
+            child: CustomScrollView(
+              key: ValueKey(_scrollAnchor),
+              controller: _scroll,
+              physics: _zoom > 1.02 || _pinchDistance != null
+                  ? const NeverScrollableScrollPhysics()
+                  : null,
+              center: _scrollCenter,
+              slivers: [
+                SliverList(
+                  delegate: SliverChildBuilderDelegate(
+                    (context, i) => item(_scrollAnchor - i - 1),
+                    childCount: _scrollAnchor,
+                  ),
+                ),
+                SliverList(
+                  key: _scrollCenter,
+                  delegate: SliverChildBuilderDelegate(
+                    (context, i) => item(_scrollAnchor + i),
+                    childCount: sources.length - _scrollAnchor,
+                  ),
+                ),
+              ],
             ),
           );
         }
@@ -807,34 +925,44 @@ class _MangaReaderState extends ConsumerState<_MangaReader> {
             final zoneW = constraints.maxWidth * 0.25;
             return Stack(
               children: [
-                Positioned.fill(child: body),
-                // 左边缘：上一页
-                Positioned(
-                  left: 0,
-                  top: 0,
-                  bottom: 0,
-                  width: zoneW,
-                  child: GestureDetector(onTap: _prev),
-                ),
-                // 右边缘：下一页
-                Positioned(
-                  right: 0,
-                  top: 0,
-                  bottom: 0,
-                  width: zoneW,
-                  child: GestureDetector(onTap: _next),
-                ),
-                // 中央：呼出/收起菜单
-                Positioned(
-                  left: zoneW,
-                  right: zoneW,
-                  top: 0,
-                  bottom: 0,
-                  child: GestureDetector(
-                    onTap: () {
-                      if (_consumeTapIfZoomed()) return;
-                      setState(() => _menu = !_menu);
+                Positioned.fill(
+                  child: Listener(
+                    onPointerDown: (event) {
+                      if (_touches.isEmpty) _suppressTap = false;
+                      _touches.add(event.pointer);
+                      _touchPositions[event.pointer] = event.localPosition;
+                      if (_touchPositions.length == 2) _beginPinch();
+                      _userInteracted = true;
+                      _lastInteraction = DateTime.now();
+                      ++_scrollJumpToken;
                     },
+                    onPointerMove: (event) =>
+                        _moveTouch(event, constraints.biggest),
+                    onPointerUp: (event) => _endTouch(event.pointer),
+                    onPointerCancel: (event) => _endTouch(event.pointer),
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTapUp: (event) {
+                        if (_suppressTap) return;
+                        if (event.localPosition.dx < zoneW) {
+                          _prev();
+                        } else if (event.localPosition.dx >
+                            constraints.maxWidth - zoneW) {
+                          _next();
+                        } else {
+                          if (_consumeTapIfZoomed()) return;
+                          setState(() => _menu = !_menu);
+                        }
+                      },
+                      child: InteractiveViewer(
+                        transformationController: _zoomControllerFor(0),
+                        panEnabled: false,
+                        scaleEnabled: false,
+                        minScale: 1,
+                        maxScale: 4,
+                        child: body,
+                      ),
+                    ),
                   ),
                 ),
                 // 设置菜单（透明遮罩 + 顶栏/底栏）
@@ -843,20 +971,30 @@ class _MangaReaderState extends ConsumerState<_MangaReader> {
                   duration: const Duration(milliseconds: 150),
                   child: IgnorePointer(
                     ignoring: !_menu,
-                    child: Stack(
+                    child: Column(
                       children: [
-                        Positioned(
-                          top: 0,
-                          left: 0,
-                          right: 0,
-                          child: _topBar(context),
+                        _topBar(context),
+                        Expanded(
+                          child: IgnorePointer(
+                            child: Row(
+                              children: [
+                                _touchGuide(
+                                  1,
+                                  _isPageMode ? '点按左侧\n上一页' : '点按左侧\n向上翻屏',
+                                ),
+                                _touchGuide(
+                                  2,
+                                  '点按中间\n显示 / 收起菜单\n单指滑动浏览 · 双指缩放',
+                                ),
+                                _touchGuide(
+                                  1,
+                                  _isPageMode ? '点按右侧\n下一页' : '点按右侧\n向下翻屏',
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
-                        Positioned(
-                          bottom: 0,
-                          left: 0,
-                          right: 0,
-                          child: _bottomBar(sources, local),
-                        ),
+                        _bottomBar(sources, local),
                       ],
                     ),
                   ),
@@ -936,6 +1074,30 @@ class _MangaReaderState extends ConsumerState<_MangaReader> {
     );
   }
 
+  Widget _touchGuide(int flex, String text) => Expanded(
+    flex: flex,
+    child: Container(
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.3),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Text(
+          text,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 20,
+            fontWeight: FontWeight.w600,
+            height: 1.5,
+          ),
+        ),
+      ),
+    ),
+  );
+
   Widget _topBar(BuildContext context) => Container(
     color: Colors.black87,
     padding: EdgeInsets.only(
@@ -962,190 +1124,235 @@ class _MangaReaderState extends ConsumerState<_MangaReader> {
     ),
   );
 
+  Widget _controlGroup(String label, Widget control) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Text(label, style: const TextStyle(color: Colors.white70)),
+      const SizedBox(width: 8),
+      Flexible(
+        child: FittedBox(fit: BoxFit.scaleDown, child: control),
+      ),
+    ],
+  );
+
   Widget _bottomBar(List<String> sources, bool local) => Container(
+    key: const ValueKey('manga-reader-controls'),
     color: Colors.black87,
-    padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+    padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
     child: SafeArea(
       top: false,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // 快捷跳转：进度条拖动 + 末端数字输入
-          Row(
-            children: [
-              Text(
-                _isDoubleMode && _spreads.isNotEmpty
-                    ? '第 ${_displayFirstPage(_current) + 1}-${_displayFirstPage(_current) + _spreads[_current.clamp(0, _spreads.length - 1)].len} 页/共 $_total 页'
-                    : '${_current + 1}/$_total',
-                style: const TextStyle(color: Colors.white70, fontSize: 13),
-              ),
-              Expanded(
-                child: Slider(
-                  value: _isPageMode
-                      ? _current.clamp(0, _dispCount - 1).toDouble()
-                      : _scrollProgress,
-                  min: 0,
-                  max: (_dispCount - 1).clamp(0, 1 << 30).toDouble(),
-                  divisions: _dispCount > 1 ? _dispCount - 1 : 1,
-                  onChanged: (v) {
-                    _userInteracted = true;
-                    if (_isPageMode) {
-                      _page.jumpToPage(v.round());
-                    } else {
-                      setState(() => _scrollProgress = v);
-                    }
-                  },
-                  onChangeEnd: (v) {
-                    if (!_isPageMode) _jumpToPage(v.round() + 1);
-                  },
-                ),
-              ),
-              SizedBox(
-                width: 64,
-                child: _NumberInput(hintText: '页码', onSubmit: _jumpToPage),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Row(
-            children: [
-              const Text('方向', style: TextStyle(color: Colors.white70)),
-              const SizedBox(width: 10),
-              SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment(value: 'horizontal', label: Text('左右')),
-                  ButtonSegment(value: 'vertical', label: Text('上下')),
-                ],
-                selected: {_mode},
-                showSelectedIcon: false,
-                onSelectionChanged: (v) {
-                  setState(() => _mode = v.first);
-                  _savePref('reader.manga.mode', v.first);
-                },
-              ),
-            ],
-          ),
-          if (_mode == 'vertical') ...[
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                const Text('浏览', style: TextStyle(color: Colors.white70)),
-                const SizedBox(width: 10),
-                SegmentedButton<bool>(
-                  segments: const [
-                    ButtonSegment(value: false, label: Text('连续滚动')),
-                    ButtonSegment(value: true, label: Text('逐页')),
-                  ],
-                  selected: {_snap},
-                  showSelectedIcon: false,
-                  onSelectionChanged: (v) {
-                    setState(() => _snap = v.first);
-                    _savePref('reader.manga.snap', '${v.first}');
-                  },
-                ),
-              ],
-            ),
-          ],
-          if (_mode == 'horizontal') ...[
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                const Text('双页', style: TextStyle(color: Colors.white70)),
-                const SizedBox(width: 10),
-                SegmentedButton<bool>(
-                  segments: const [
-                    ButtonSegment(value: false, label: Text('单页')),
-                    ButtonSegment(value: true, label: Text('对开')),
-                  ],
-                  selected: {_doublePage},
-                  showSelectedIcon: false,
-                  onSelectionChanged: (v) => _setDoublePage(v.first),
-                ),
-              ],
-            ),
-          ],
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              const Text('自动', style: TextStyle(color: Colors.white70)),
-              const SizedBox(width: 10),
-              SegmentedButton<int>(
-                segments: const [
-                  ButtonSegment(value: 0, label: Text('关')),
-                  ButtonSegment(value: 3, label: Text('3秒')),
-                  ButtonSegment(value: 5, label: Text('5秒')),
-                  ButtonSegment(value: 10, label: Text('10秒')),
-                  ButtonSegment(value: 30, label: Text('30秒')),
-                ],
-                selected: {_autoSeconds},
-                showSelectedIcon: false,
-                onSelectionChanged: (v) => _setAuto(v.first),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              const Text('自定', style: TextStyle(color: Colors.white70)),
-              const SizedBox(width: 10),
-              SizedBox(
-                width: 72,
-                child: _NumberInput(
-                  hintText: '间隔秒',
-                  onSubmit: (v) {
-                    if (v >= 1 && v <= 3600) _setAuto(v);
-                  },
-                ),
-              ),
-              if (!_isPageMode) ...[
-                const SizedBox(width: 16),
-                const Text('滚距', style: TextStyle(color: Colors.white70)),
-                Expanded(
-                  child: Slider(
-                    value: _scrollPercent.toDouble(),
-                    min: 10,
-                    max: 100,
-                    divisions: 18,
-                    label: '$_scrollPercent%',
-                    onChanged: (v) =>
-                        setState(() => _scrollPercent = v.round()),
-                    onChangeEnd: (v) =>
-                        _savePref('reader.manga.scrollPercent', '${v.round()}'),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: min(300, MediaQuery.sizeOf(context).height * 0.45),
+        ),
+        child: SingleChildScrollView(
+          child: Theme(
+            data: Theme.of(context).copyWith(
+              segmentedButtonTheme: const SegmentedButtonThemeData(
+                style: ButtonStyle(
+                  visualDensity: VisualDensity.compact,
+                  padding: WidgetStatePropertyAll(
+                    EdgeInsets.symmetric(horizontal: 10),
                   ),
                 ),
-                SizedBox(
-                  width: 64,
-                  child: _NumberInput(
-                    hintText: '%',
-                    onSubmit: (v) {
-                      if (v >= 10 && v <= 100) {
-                        setState(() => _scrollPercent = v);
-                        _savePref('reader.manga.scrollPercent', '$v');
-                      }
-                    },
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // 快捷跳转：进度条拖动 + 末端数字输入
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    _pagePreview != null
+                        ? '第 ${_pagePreview!.round() + 1} 页/共 $_total 页'
+                        : _isDoubleMode && _spreads.isNotEmpty
+                        ? '第 ${_displayFirstPage(_current) + 1}-${_displayFirstPage(_current) + _spreads[_current.clamp(0, _spreads.length - 1)].len} 页/共 $_total 页'
+                        : '$_currentPage1Based/$_total',
+                    style: const TextStyle(color: Colors.white70, fontSize: 13),
                   ),
                 ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Slider(
+                        key: const ValueKey('manga-page-slider'),
+                        value:
+                            (_pagePreview ??
+                                    (_currentPage1Based - 1).toDouble())
+                                .clamp(0, _total - 1),
+                        min: 0,
+                        max: (_total - 1).toDouble(),
+                        divisions: _total > 1 ? _total - 1 : null,
+                        label:
+                            '第 ${(_pagePreview ?? (_currentPage1Based - 1)).round() + 1} 页',
+                        onChangeStart: _total <= 1
+                            ? null
+                            : (v) {
+                                _userInteracted = true;
+                                _lastInteraction = DateTime.now();
+                                ++_scrollJumpToken;
+                                setState(() => _pagePreview = v);
+                              },
+                        onChanged: _total <= 1
+                            ? null
+                            : (v) => setState(() => _pagePreview = v),
+                        onChangeEnd: _total <= 1
+                            ? null
+                            : (v) {
+                                _lastInteraction = DateTime.now();
+                                setState(() => _pagePreview = null);
+                                _jumpToPage(v.round() + 1);
+                              },
+                      ),
+                    ),
+                    SizedBox(
+                      width: 64,
+                      child: _NumberInput(
+                        hintText: '页码',
+                        onSubmit: _jumpToPage,
+                      ),
+                    ),
+                  ],
+                ),
+                Wrap(
+                  spacing: 16,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    _controlGroup(
+                      '方向',
+                      SegmentedButton<String>(
+                        segments: const [
+                          ButtonSegment(value: 'horizontal', label: Text('左右')),
+                          ButtonSegment(value: 'vertical', label: Text('上下')),
+                        ],
+                        selected: {_mode},
+                        showSelectedIcon: false,
+                        onSelectionChanged: (v) => _setMode(v.first),
+                      ),
+                    ),
+                    if (_mode == 'vertical')
+                      _controlGroup(
+                        '浏览',
+                        SegmentedButton<bool>(
+                          segments: const [
+                            ButtonSegment(value: false, label: Text('连续滚动')),
+                            ButtonSegment(value: true, label: Text('逐页')),
+                          ],
+                          selected: {_snap},
+                          showSelectedIcon: false,
+                          onSelectionChanged: (v) => _setSnap(v.first),
+                        ),
+                      ),
+                    if (_mode == 'horizontal')
+                      _controlGroup(
+                        '双页',
+                        SegmentedButton<bool>(
+                          segments: const [
+                            ButtonSegment(value: false, label: Text('单页')),
+                            ButtonSegment(value: true, label: Text('对开')),
+                          ],
+                          selected: {_doublePage},
+                          showSelectedIcon: false,
+                          onSelectionChanged: (v) => _setDoublePage(v.first),
+                        ),
+                      ),
+                    _controlGroup(
+                      '自动',
+                      SegmentedButton<int>(
+                        segments: const [
+                          ButtonSegment(value: 0, label: Text('关')),
+                          ButtonSegment(value: 3, label: Text('3秒')),
+                          ButtonSegment(value: 5, label: Text('5秒')),
+                          ButtonSegment(value: 10, label: Text('10秒')),
+                          ButtonSegment(value: 30, label: Text('30秒')),
+                        ],
+                        selected: {_autoSeconds},
+                        showSelectedIcon: false,
+                        onSelectionChanged: (v) => _setAuto(v.first),
+                      ),
+                    ),
+                    _controlGroup(
+                      '秒数',
+                      SizedBox(
+                        width: 72,
+                        child: _NumberInput(
+                          hintText: '间隔秒',
+                          onSubmit: (v) {
+                            if (v >= 1 && v <= 3600) _setAuto(v);
+                          },
+                        ),
+                      ),
+                    ),
+                    if (!_isPageMode)
+                      SizedBox(
+                        width: 250,
+                        child: Row(
+                          children: [
+                            Text(
+                              '翻屏 $_scrollPercent%',
+                              style: const TextStyle(color: Colors.white70),
+                            ),
+                            Expanded(
+                              child: Slider(
+                                value: _scrollPercent.toDouble(),
+                                min: 10,
+                                max: 100,
+                                divisions: 18,
+                                label: '$_scrollPercent%',
+                                onChanged: (v) =>
+                                    setState(() => _scrollPercent = v.round()),
+                                onChangeEnd: (v) => _savePref(
+                                  'reader.manga.scrollPercent',
+                                  '${v.round()}',
+                                ),
+                              ),
+                            ),
+                            SizedBox(
+                              width: 56,
+                              child: _NumberInput(
+                                hintText: '%',
+                                onSubmit: (v) {
+                                  if (v >= 10 && v <= 100) {
+                                    setState(() => _scrollPercent = v);
+                                    _savePref(
+                                      'reader.manga.scrollPercent',
+                                      '$v',
+                                    );
+                                  }
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    TextButton.icon(
+                      icon: const Icon(
+                        Icons.bookmark_border,
+                        color: Colors.white70,
+                        size: 20,
+                      ),
+                      label: const Text(
+                        '书签',
+                        style: TextStyle(color: Colors.white70),
+                      ),
+                      onPressed: () => _showBookmarksSheet(sources, local),
+                    ),
+                  ],
+                ),
+                if (!_isPageMode)
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      '翻屏距离按屏幕高度计算，仅影响侧边点按和自动翻屏；手指滑动保持跟手。',
+                      style: TextStyle(color: Colors.white54, fontSize: 11),
+                    ),
+                  ),
               ],
-            ],
+            ),
           ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              TextButton.icon(
-                icon: const Icon(
-                  Icons.bookmark_border,
-                  color: Colors.white70,
-                  size: 20,
-                ),
-                label: const Text(
-                  '书签',
-                  style: TextStyle(color: Colors.white70),
-                ),
-                onPressed: () => _showBookmarksSheet(sources, local),
-              ),
-            ],
-          ),
-        ],
+        ),
       ),
     ),
   );
